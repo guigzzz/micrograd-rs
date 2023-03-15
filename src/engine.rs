@@ -1,6 +1,8 @@
 use std::{
+    cell::RefCell,
     collections::HashMap,
     ops::{Add, Mul},
+    rc::Rc,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -59,7 +61,7 @@ impl IdGenerator {
 pub struct GraphBuilder<'a> {
     root: NodeId,
     nodes: HashMap<NodeId, Node>,
-    ids: &'a mut IdGenerator,
+    ids: &'a Rc<RefCell<&'a mut IdGenerator>>,
     inputs: HashMap<NodeId, f64>,
 }
 
@@ -74,7 +76,7 @@ impl<'a> GraphBuilder<'a> {
         let mut nodes = left.nodes.clone();
         nodes.extend(right.nodes.clone());
 
-        let id = left.ids.get_id();
+        let id = left.ids.borrow_mut().get_id();
         nodes.insert(id, Node::Operation(new_root));
 
         let mut inputs = left.inputs.clone();
@@ -96,7 +98,9 @@ impl<'a> GraphBuilder<'a> {
     ) -> GraphBuilder<'a> {
         let mut nodes = left.nodes.clone();
 
-        let id = left.ids.get_id();
+        let mut ids = left.ids.borrow_mut();
+
+        let id = ids.get_id();
         nodes.insert(id, Node::Immediate(right_val));
 
         let left_node = if is_input {
@@ -110,7 +114,7 @@ impl<'a> GraphBuilder<'a> {
             right_id: NodeRef::OpNode(id),
         };
 
-        let root_id = left.ids.get_id();
+        let root_id = ids.get_id();
         nodes.insert(root_id, Node::Operation(new_root));
 
         GraphBuilder {
@@ -121,7 +125,7 @@ impl<'a> GraphBuilder<'a> {
         }
     }
 
-    pub fn new(ids: &mut IdGenerator) -> GraphBuilder {
+    pub fn new(ids: &'a Rc<RefCell<&'a mut IdGenerator>>) -> GraphBuilder<'a> {
         GraphBuilder {
             root: NodeId(0),
             nodes: HashMap::new(),
@@ -130,8 +134,8 @@ impl<'a> GraphBuilder<'a> {
         }
     }
 
-    pub fn new_immediate(&'a mut self, val: f64) -> GraphBuilder<'a> {
-        let id = self.ids.get_id();
+    pub fn new_immediate(&self, val: f64) -> GraphBuilder<'a> {
+        let id = self.ids.borrow_mut().get_id();
         GraphBuilder {
             root: id,
             nodes: HashMap::from([(id, Node::Immediate(val))]),
@@ -140,8 +144,8 @@ impl<'a> GraphBuilder<'a> {
         }
     }
 
-    pub fn create_input(&'a mut self) -> InputNode<'a> {
-        let id = self.ids.get_id();
+    pub fn create_input(&self) -> InputNode<'a> {
+        let id = self.ids.borrow_mut().get_id();
 
         let mut inputs = self.inputs.clone();
         inputs.insert(id, f64::default());
@@ -243,6 +247,7 @@ mod tests {
     #[test]
     fn test_graph_builder() {
         let ids = &mut IdGenerator::new();
+        let ids = &Rc::new(RefCell::new(ids));
 
         let mut graph = GraphBuilder::new(ids);
         let input = graph.create_input();
@@ -261,14 +266,26 @@ mod tests {
         assert_eq!(g.get_value(), 12.);
     }
 
-    // #[test]
-    // fn test_graph_builder_multiple_inputs() {
-    //     let ids = &mut IdGenerator::new();
+    #[test]
+    fn test_graph_builder_multiple_inputs() {
+        let ids = &mut IdGenerator::new();
+        let ids = &Rc::new(RefCell::new(ids));
 
-    //     let mut graph = GraphBuilder::new(ids);
-    //     let input1 = graph.create_input();
-    //     let input2 = graph.create_input();
-    // }
+        let graph = GraphBuilder::new(ids);
+        let input1 = graph.create_input();
+        let id1 = input1.id;
+        let input2 = graph.create_input();
+        let id2 = input2.id;
+
+        let g1 = input1 + 1.;
+        let g2 = input2 + 2.;
+
+        let mut g = g1 + g2;
+
+        g.set_input(id1, 1.5);
+        g.set_input(id2, 2.5);
+        assert_eq!(g.get_value(), 7.);
+    }
 
     // #[test]
     // fn test_graph_builder_basic() {
