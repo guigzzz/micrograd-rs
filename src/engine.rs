@@ -277,19 +277,18 @@ mod tests {
         let ids = &Rc::new(RefCell::new(ids));
 
         let graph = GraphBuilder::new(ids);
-        let input = graph.create_input();
-        let id = input.id;
+        let input = &graph.create_input();
 
         let mut g = input + 1.;
 
         assert_eq!(g.get_value(), 1.);
 
-        g.set_input(id, 1.);
+        g.set_input(input.id, 1.);
         assert_eq!(g.get_value(), 2.);
 
         let mut g = g * 4.;
 
-        g.set_input(id, 2.);
+        g.set_input(input.id, 2.);
         assert_eq!(g.get_value(), 12.);
     }
 
@@ -300,17 +299,15 @@ mod tests {
 
         let graph = GraphBuilder::new(ids);
         let input1 = &graph.create_input();
-        let id1 = input1.id;
         let input2 = &graph.create_input();
-        let id2 = input2.id;
 
         let g1 = input1 + 1.;
         let g2 = input2 + 2.;
 
         let mut g = g1 + g2 + input1;
 
-        g.set_input(id1, 1.5);
-        g.set_input(id2, 2.5);
+        g.set_input(input1.id, 1.5);
+        g.set_input(input2.id, 2.5);
         assert_eq!(g.get_value(), 8.5);
     }
 }
