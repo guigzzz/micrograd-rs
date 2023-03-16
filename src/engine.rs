@@ -258,6 +258,22 @@ impl<'a> Mul<GraphBuilder<'a>> for GraphBuilder<'a> {
     }
 }
 
+impl<'a> Mul<&GraphBuilder<'a>> for &GraphBuilder<'a> {
+    type Output = GraphBuilder<'a>;
+
+    fn mul(self, rhs: &GraphBuilder) -> Self::Output {
+        GraphBuilder::combine(Operation::Mul, self.clone(), rhs.clone())
+    }
+}
+
+impl<'a> Mul<&InputNode<'a>> for GraphBuilder<'a> {
+    type Output = GraphBuilder<'a>;
+
+    fn mul(self, rhs: &InputNode<'a>) -> Self::Output {
+        GraphBuilder::combine(Operation::Mul, self.clone(), rhs.builder.clone())
+    }
+}
+
 impl<'a> Mul<f64> for GraphBuilder<'a> {
     type Output = GraphBuilder<'a>;
 
@@ -303,10 +319,14 @@ mod tests {
         let g1 = input1 + 1.;
         let g2 = input2 + 2.;
 
-        let mut g = g1 + g2 + input1;
+        let g3 = &g1 + &g2 + input1;
+
+        let g4 = &g1 * &g2 * input2;
+
+        let mut g = g3 + g4;
 
         g.set_input(input1.id, 1.5);
         g.set_input(input2.id, 2.5);
-        assert_eq!(g.get_value(), 8.5);
+        assert_eq!(g.get_value(), 36.625);
     }
 }
