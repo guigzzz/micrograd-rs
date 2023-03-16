@@ -61,7 +61,7 @@ impl IdGenerator {
 pub struct GraphBuilder<'a> {
     root: NodeRef,
     nodes: HashMap<NodeId, Node>,
-    ids: &'a Rc<RefCell<&'a mut IdGenerator>>,
+    ids: Rc<RefCell<&'a mut IdGenerator>>,
     inputs: HashMap<NodeId, f64>,
 }
 
@@ -94,7 +94,6 @@ impl<'a> GraphBuilder<'a> {
         op: Operation,
         left: GraphBuilder<'a>,
         right_val: f64,
-        is_input: bool,
     ) -> GraphBuilder<'a> {
         let mut nodes = left.nodes.clone();
 
@@ -115,12 +114,12 @@ impl<'a> GraphBuilder<'a> {
         GraphBuilder {
             root: NodeRef::OpNode(root_id),
             nodes,
-            ids: left.ids,
+            ids: left.ids.clone(),
             inputs: left.inputs.clone(),
         }
     }
 
-    pub fn new(ids: &'a Rc<RefCell<&'a mut IdGenerator>>) -> GraphBuilder<'a> {
+    pub fn new(ids: Rc<RefCell<&'a mut IdGenerator>>) -> GraphBuilder<'a> {
         GraphBuilder {
             root: NodeRef::OpNode(NodeId(0)),
             nodes: HashMap::new(),
@@ -134,7 +133,7 @@ impl<'a> GraphBuilder<'a> {
         GraphBuilder {
             root: NodeRef::OpNode(id),
             nodes: HashMap::from([(id, Node::Immediate(val))]),
-            ids: self.ids,
+            ids: self.ids.clone(),
             inputs: HashMap::new(),
         }
     }
@@ -150,7 +149,7 @@ impl<'a> GraphBuilder<'a> {
             builder: GraphBuilder {
                 root: NodeRef::InputNode(id),
                 nodes: self.nodes.clone(),
-                ids: self.ids,
+                ids: self.ids.clone(),
                 inputs,
             },
         }
@@ -215,7 +214,7 @@ impl<'a> Add<f64> for GraphBuilder<'a> {
     type Output = GraphBuilder<'a>;
 
     fn add(self, rhs: f64) -> Self::Output {
-        GraphBuilder::with_immediate(Operation::Add, self, rhs, false)
+        GraphBuilder::with_immediate(Operation::Add, self, rhs)
     }
 }
 
@@ -231,7 +230,7 @@ impl<'a> Add<f64> for InputNode<'a> {
     type Output = GraphBuilder<'a>;
 
     fn add(self, rhs: f64) -> Self::Output {
-        GraphBuilder::with_immediate(Operation::Add, self.builder, rhs, true)
+        GraphBuilder::with_immediate(Operation::Add, self.builder, rhs)
     }
 }
 
@@ -239,7 +238,7 @@ impl<'a> Add<f64> for &InputNode<'a> {
     type Output = GraphBuilder<'a>;
 
     fn add(self, rhs: f64) -> Self::Output {
-        GraphBuilder::with_immediate(Operation::Add, self.builder.clone(), rhs, true)
+        GraphBuilder::with_immediate(Operation::Add, self.builder.clone(), rhs)
     }
 }
 
@@ -263,7 +262,7 @@ impl<'a> Mul<f64> for GraphBuilder<'a> {
     type Output = GraphBuilder<'a>;
 
     fn mul(self, rhs: f64) -> Self::Output {
-        GraphBuilder::with_immediate(Operation::Mul, self, rhs, false)
+        GraphBuilder::with_immediate(Operation::Mul, self, rhs)
     }
 }
 
@@ -274,7 +273,7 @@ mod tests {
     #[test]
     fn test_graph_builder() {
         let ids = &mut IdGenerator::new();
-        let ids = &Rc::new(RefCell::new(ids));
+        let ids = Rc::new(RefCell::new(ids));
 
         let graph = GraphBuilder::new(ids);
         let input = &graph.create_input();
@@ -295,7 +294,7 @@ mod tests {
     #[test]
     fn test_graph_builder_multiple_inputs() {
         let ids = &mut IdGenerator::new();
-        let ids = &Rc::new(RefCell::new(ids));
+        let ids = Rc::new(RefCell::new(ids));
 
         let graph = GraphBuilder::new(ids);
         let input1 = &graph.create_input();
