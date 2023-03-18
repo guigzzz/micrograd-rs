@@ -1,9 +1,11 @@
 use std::{
     cell::RefCell,
     collections::HashMap,
-    ops::{Add, Mul},
+    ops::{Add, Div, Mul, Neg, Sub},
     rc::Rc,
 };
+
+use num::traits::Pow;
 
 #[derive(Debug, Clone, Copy)]
 pub enum Operation {
@@ -11,6 +13,8 @@ pub enum Operation {
     Add,
     Sub,
     Div,
+    Pow,
+    Relu,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -20,6 +24,24 @@ pub struct NodeId(usize);
 pub enum NodeRef {
     OpNode(NodeId),
     InputNode(NodeId),
+}
+
+impl NodeRef {
+    fn as_op_node_id(self) -> Option<NodeId> {
+        match self {
+            Self::OpNode(id) => Some(id),
+            _ => None,
+        }
+    }
+}
+
+impl Into<NodeId> for NodeRef {
+    fn into(self) -> NodeId {
+        match self {
+            Self::OpNode(id) => id,
+            Self::InputNode(id) => id,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -39,6 +61,15 @@ pub struct InputNode<'a> {
 pub enum Node {
     Operation(GraphBuilderNode),
     Immediate(f64),
+}
+
+impl Into<Option<GraphBuilderNode>> for &Node {
+    fn into(self) -> Option<GraphBuilderNode> {
+        match self {
+            Node::Operation(n) => Some(*n),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -134,10 +165,95 @@ impl RunnableGraph {
                     Operation::Add => left_val + right_val,
                     Operation::Sub => left_val - right_val,
                     Operation::Div => left_val / right_val,
+                    Operation::Pow => left_val.pow(right_val),
+                    Operation::Relu => {
+                        if left_val < 0. {
+                            0.
+                        } else {
+                            left_val
+                        }
+                    }
                 }
             }
             Node::Immediate(v) => *v,
         }
+    }
+
+    fn data_for_id_mut(&mut self, id: NodeId) -> &mut Data {
+        self.data
+            .get_mut(&id)
+            .expect(format!("Failed to fetch data for {:?}", id).as_str())
+    }
+
+    fn data_for_id(&self, id: NodeId) -> &Data {
+        self.data
+            .get(&id)
+            .expect(format!("Failed to fetch data for {:?}", id).as_str())
+    }
+
+    fn grad_for_id(&self, id: NodeId) -> f64 {
+        self.data_for_id(id).gradient
+    }
+
+    fn value_for_id(&self, id: NodeId) -> f64 {
+        self.data_for_id(id).value
+    }
+
+    fn update(&mut self, id: NodeId, operation: Operation, root_grad: f64, other_value: f64) {
+        {
+            let data = self.data_for_id_mut(id);
+            match operation {
+                Operation::Add => {
+                    data.gradient += root_grad;
+                }
+                Operation::Mul => {
+                    data.gradient += other_value * root_grad;
+                }
+                _ => todo!(),
+            }
+        }
+    }
+
+    fn apply_grads(&mut self, root_id: NodeId, node: GraphBuilderNode) {
+        let root_grad = self.grad_for_id(root_id);
+
+        let left_value = self.value_for_id(node.left_id.into());
+        let right_value = self.value_for_id(node.right_id.into());
+
+        self.update(node.left_id.into(), node.operation, root_grad, right_value);
+        self.update(node.right_id.into(), node.operation, root_grad, left_value);
+    }
+
+    fn _backwards(&mut self, id: NodeId) {
+        let node = self.nodes.get(&id).unwrap();
+        let node: Option<GraphBuilderNode> = node.into();
+
+        let _ = node.map(|node| {
+            let _ = node.left_id.as_op_node_id().map(|id| {
+                let node = self.nodes.get(&id).unwrap();
+                let node: Option<GraphBuilderNode> = node.into();
+                let _ = node.map(|node| {
+                    self.apply_grads(id, node);
+                    self._backwards(id);
+                });
+            });
+
+            let _ = node.right_id.as_op_node_id().map(|id| {
+                let node = self.nodes.get(&id).unwrap();
+                let node: Option<GraphBuilderNode> = node.into();
+                let _ = node.map(|node| {
+                    self.apply_grads(id, node);
+                    self._backwards(id);
+                });
+            });
+        });
+    }
+
+    pub fn backwards(&mut self) {
+        let mut data = self.data_for_id_mut(self.root.into());
+        data.gradient = 1.;
+
+        self._backwards(self.root.into())
     }
 }
 
@@ -191,6 +307,31 @@ impl<'a> GraphBuilder<'a> {
         }
     }
 
+    fn with_immediate2(op: Operation, left: f64, right: GraphBuilder<'a>) -> GraphBuilder<'a> {
+        let mut nodes = right.nodes.clone();
+
+        let mut ids = right.ids.borrow_mut();
+
+        let id = ids.get_id();
+        nodes.insert(id, Node::Immediate(left));
+
+        let new_root = GraphBuilderNode {
+            operation: op,
+            left_id: NodeRef::OpNode(id),
+            right_id: right.root,
+        };
+
+        let root_id = ids.get_id();
+        nodes.insert(root_id, Node::Operation(new_root));
+
+        GraphBuilder {
+            root: NodeRef::OpNode(root_id),
+            nodes,
+            ids: right.ids.clone(),
+            inputs: right.inputs.clone(),
+        }
+    }
+
     pub fn new(ids: Rc<RefCell<&'a mut IdGenerator>>) -> GraphBuilder<'a> {
         GraphBuilder {
             root: NodeRef::OpNode(NodeId(0)),
@@ -224,6 +365,10 @@ impl<'a> GraphBuilder<'a> {
             inputs: self.inputs.clone(),
             data: HashMap::new(),
         }
+    }
+
+    fn relu(self) -> GraphBuilder<'a> {
+        GraphBuilder::with_immediate(Operation::Relu, self.clone(), 0.)
     }
 }
 
@@ -275,6 +420,46 @@ impl<'a> Add<f64> for &InputNode<'a> {
     }
 }
 
+impl<'a> Add<GraphBuilder<'a>> for f64 {
+    type Output = GraphBuilder<'a>;
+
+    fn add(self, rhs: GraphBuilder<'a>) -> Self::Output {
+        GraphBuilder::with_immediate(Operation::Add, rhs, self)
+    }
+}
+
+impl<'a> Add<&InputNode<'a>> for &InputNode<'a> {
+    type Output = GraphBuilder<'a>;
+
+    fn add(self, rhs: &InputNode<'a>) -> Self::Output {
+        GraphBuilder::combine(Operation::Add, self.builder.clone(), rhs.builder.clone())
+    }
+}
+
+impl<'a> Sub<&InputNode<'a>> for &InputNode<'a> {
+    type Output = GraphBuilder<'a>;
+
+    fn sub(self, rhs: &InputNode<'a>) -> Self::Output {
+        GraphBuilder::combine(Operation::Sub, self.builder.clone(), rhs.builder.clone())
+    }
+}
+
+impl<'a> Sub<GraphBuilder<'a>> for GraphBuilder<'a> {
+    type Output = GraphBuilder<'a>;
+
+    fn sub(self, rhs: GraphBuilder<'a>) -> Self::Output {
+        GraphBuilder::combine(Operation::Sub, self.clone(), rhs.clone())
+    }
+}
+
+impl<'a> Neg for &InputNode<'a> {
+    type Output = GraphBuilder<'a>;
+
+    fn neg(self) -> Self::Output {
+        GraphBuilder::with_immediate2(Operation::Sub, 0., self.builder.clone())
+    }
+}
+
 impl<'a> Add<GraphBuilder<'a>> for &InputNode<'a> {
     type Output = GraphBuilder<'a>;
 
@@ -299,11 +484,59 @@ impl<'a> Mul<&GraphBuilder<'a>> for &GraphBuilder<'a> {
     }
 }
 
+impl<'a> Mul<GraphBuilder<'a>> for f64 {
+    type Output = GraphBuilder<'a>;
+
+    fn mul(self, rhs: GraphBuilder<'a>) -> Self::Output {
+        GraphBuilder::with_immediate(Operation::Mul, rhs.clone(), self)
+    }
+}
+
 impl<'a> Mul<&InputNode<'a>> for GraphBuilder<'a> {
     type Output = GraphBuilder<'a>;
 
     fn mul(self, rhs: &InputNode<'a>) -> Self::Output {
         GraphBuilder::combine(Operation::Mul, self.clone(), rhs.builder.clone())
+    }
+}
+
+impl<'a> Mul<&InputNode<'a>> for &InputNode<'a> {
+    type Output = GraphBuilder<'a>;
+
+    fn mul(self, rhs: &InputNode<'a>) -> Self::Output {
+        GraphBuilder::combine(Operation::Mul, self.builder.clone(), rhs.builder.clone())
+    }
+}
+
+impl<'a> Pow<f64> for &InputNode<'a> {
+    type Output = GraphBuilder<'a>;
+
+    fn pow(self, rhs: f64) -> Self::Output {
+        GraphBuilder::with_immediate(Operation::Pow, self.builder.clone(), rhs)
+    }
+}
+
+impl<'a> Pow<f64> for GraphBuilder<'a> {
+    type Output = GraphBuilder<'a>;
+
+    fn pow(self, rhs: f64) -> Self::Output {
+        GraphBuilder::with_immediate(Operation::Pow, self.clone(), rhs)
+    }
+}
+
+impl<'a> Div<f64> for &GraphBuilder<'a> {
+    type Output = GraphBuilder<'a>;
+
+    fn div(self, rhs: f64) -> Self::Output {
+        GraphBuilder::with_immediate(Operation::Div, self.clone(), rhs)
+    }
+}
+
+impl<'a> Div<&GraphBuilder<'a>> for f64 {
+    type Output = GraphBuilder<'a>;
+
+    fn div(self, rhs: &GraphBuilder<'a>) -> Self::Output {
+        GraphBuilder::with_immediate(Operation::Div, rhs.clone(), self)
     }
 }
 
@@ -366,5 +599,35 @@ mod tests {
         g.set_input(input1.id, 1.5);
         g.set_input(input2.id, 2.5);
         assert_eq!(g.forward(), 36.625);
+    }
+
+    #[test]
+    fn test_complex() {
+        let ids = &mut IdGenerator::new();
+        let ids = Rc::new(RefCell::new(ids));
+
+        let graph = GraphBuilder::new(ids);
+        let a = &graph.create_input();
+        let b = &graph.create_input();
+
+        let c = a + b;
+
+        let d = a * b + b.pow(3.);
+
+        let c = c + 1.;
+        let c = 1. + c + -a;
+        let d = d * 2. + (b + a).relu();
+
+        let d = 3. * d + (b - a).relu();
+        let e = c - d;
+        let f = e.pow(2.);
+        let g = &f / 2.0 + 10. / &f;
+
+        let mut g = g.make();
+
+        g.set_input(a.id, -4.);
+        g.set_input(b.id, 2.);
+
+        assert_eq!(g.forward(), 2.4);
     }
 }
