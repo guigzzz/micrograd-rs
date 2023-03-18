@@ -65,96 +65,14 @@ pub struct GraphBuilder<'a> {
     inputs: HashMap<NodeId, f64>,
 }
 
-impl<'a> GraphBuilder<'a> {
-    pub fn combine(op: Operation, left: GraphBuilder<'a>, right: GraphBuilder) -> GraphBuilder<'a> {
-        let new_root = GraphBuilderNode {
-            operation: op,
-            left_id: left.root,
-            right_id: right.root,
-        };
+#[derive(Debug)]
+pub struct RunnableGraph {
+    root: NodeRef,
+    nodes: HashMap<NodeId, Node>,
+    inputs: HashMap<NodeId, f64>,
+}
 
-        let mut nodes = left.nodes.clone();
-        nodes.extend(right.nodes.clone());
-
-        let id = left.ids.borrow_mut().get_id();
-        nodes.insert(id, Node::Operation(new_root));
-
-        let mut inputs = left.inputs.clone();
-        inputs.extend(right.inputs.clone());
-
-        GraphBuilder {
-            root: NodeRef::OpNode(id),
-            nodes,
-            ids: left.ids,
-            inputs,
-        }
-    }
-
-    pub fn with_immediate(
-        op: Operation,
-        left: GraphBuilder<'a>,
-        right_val: f64,
-    ) -> GraphBuilder<'a> {
-        let mut nodes = left.nodes.clone();
-
-        let mut ids = left.ids.borrow_mut();
-
-        let id = ids.get_id();
-        nodes.insert(id, Node::Immediate(right_val));
-
-        let new_root = GraphBuilderNode {
-            operation: op,
-            left_id: left.root,
-            right_id: NodeRef::OpNode(id),
-        };
-
-        let root_id = ids.get_id();
-        nodes.insert(root_id, Node::Operation(new_root));
-
-        GraphBuilder {
-            root: NodeRef::OpNode(root_id),
-            nodes,
-            ids: left.ids.clone(),
-            inputs: left.inputs.clone(),
-        }
-    }
-
-    pub fn new(ids: Rc<RefCell<&'a mut IdGenerator>>) -> GraphBuilder<'a> {
-        GraphBuilder {
-            root: NodeRef::OpNode(NodeId(0)),
-            nodes: HashMap::new(),
-            ids,
-            inputs: HashMap::new(),
-        }
-    }
-
-    pub fn new_immediate(&self, val: f64) -> GraphBuilder<'a> {
-        let id = self.ids.borrow_mut().get_id();
-        GraphBuilder {
-            root: NodeRef::OpNode(id),
-            nodes: HashMap::from([(id, Node::Immediate(val))]),
-            ids: self.ids.clone(),
-            inputs: HashMap::new(),
-        }
-    }
-
-    pub fn create_input(&self) -> InputNode<'a> {
-        let id = self.ids.borrow_mut().get_id();
-
-        let mut inputs = self.inputs.clone();
-        inputs.insert(id, f64::default());
-
-        InputNode {
-            id,
-            builder: GraphBuilder {
-                root: NodeRef::InputNode(id),
-                nodes: self.nodes.clone(),
-                ids: self.ids.clone(),
-                inputs,
-            },
-        }
-    }
-
+impl RunnableGraph {
     pub fn set_input(&mut self, inp: NodeId, val: f64) {
         let node = self.inputs.get_mut(&inp).unwrap();
         *node = val;
@@ -190,6 +108,91 @@ impl<'a> GraphBuilder<'a> {
                 }
             }
             Node::Immediate(v) => *v,
+        }
+    }
+}
+
+impl<'a> GraphBuilder<'a> {
+    fn combine(op: Operation, left: GraphBuilder<'a>, right: GraphBuilder) -> GraphBuilder<'a> {
+        let new_root = GraphBuilderNode {
+            operation: op,
+            left_id: left.root,
+            right_id: right.root,
+        };
+
+        let mut nodes = left.nodes.clone();
+        nodes.extend(right.nodes.clone());
+
+        let id = left.ids.borrow_mut().get_id();
+        nodes.insert(id, Node::Operation(new_root));
+
+        let mut inputs = left.inputs.clone();
+        inputs.extend(right.inputs.clone());
+
+        GraphBuilder {
+            root: NodeRef::OpNode(id),
+            nodes,
+            ids: left.ids,
+            inputs,
+        }
+    }
+
+    fn with_immediate(op: Operation, left: GraphBuilder<'a>, right_val: f64) -> GraphBuilder<'a> {
+        let mut nodes = left.nodes.clone();
+
+        let mut ids = left.ids.borrow_mut();
+
+        let id = ids.get_id();
+        nodes.insert(id, Node::Immediate(right_val));
+
+        let new_root = GraphBuilderNode {
+            operation: op,
+            left_id: left.root,
+            right_id: NodeRef::OpNode(id),
+        };
+
+        let root_id = ids.get_id();
+        nodes.insert(root_id, Node::Operation(new_root));
+
+        GraphBuilder {
+            root: NodeRef::OpNode(root_id),
+            nodes,
+            ids: left.ids.clone(),
+            inputs: left.inputs.clone(),
+        }
+    }
+
+    pub fn new(ids: Rc<RefCell<&'a mut IdGenerator>>) -> GraphBuilder<'a> {
+        GraphBuilder {
+            root: NodeRef::OpNode(NodeId(0)),
+            nodes: HashMap::new(),
+            ids,
+            inputs: HashMap::new(),
+        }
+    }
+
+    pub fn create_input(&self) -> InputNode<'a> {
+        let id = self.ids.borrow_mut().get_id();
+
+        let mut inputs = self.inputs.clone();
+        inputs.insert(id, f64::default());
+
+        InputNode {
+            id,
+            builder: GraphBuilder {
+                root: NodeRef::InputNode(id),
+                nodes: self.nodes.clone(),
+                ids: self.ids.clone(),
+                inputs,
+            },
+        }
+    }
+
+    fn make(&self) -> RunnableGraph {
+        RunnableGraph {
+            root: self.root,
+            nodes: self.nodes.clone(),
+            inputs: self.inputs.clone(),
         }
     }
 }
@@ -294,14 +297,17 @@ mod tests {
         let graph = GraphBuilder::new(ids);
         let input = &graph.create_input();
 
-        let mut g = input + 1.;
+        let builder = input + 1.;
+
+        let mut g = builder.make();
 
         assert_eq!(g.get_value(), 1.);
 
         g.set_input(input.id, 1.);
         assert_eq!(g.get_value(), 2.);
 
-        let mut g = g * 4.;
+        let builder = builder * 4.;
+        let mut g = builder.make();
 
         g.set_input(input.id, 2.);
         assert_eq!(g.get_value(), 12.);
@@ -323,7 +329,9 @@ mod tests {
 
         let g4 = &g1 * &g2 * input2;
 
-        let mut g = g3 + g4;
+        let g = g3 + g4;
+
+        let mut g = g.make();
 
         g.set_input(input1.id, 1.5);
         g.set_input(input2.id, 2.5);
