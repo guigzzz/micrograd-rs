@@ -66,10 +66,26 @@ pub struct GraphBuilder<'a> {
 }
 
 #[derive(Debug)]
+pub struct Data {
+    value: f64,
+    gradient: f64,
+}
+
+impl Data {
+    pub fn new(v: f64) -> Data {
+        Data {
+            value: v,
+            gradient: 0.,
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct RunnableGraph {
     root: NodeRef,
     nodes: HashMap<NodeId, Node>,
     inputs: HashMap<NodeId, f64>,
+    data: HashMap<NodeId, Data>,
 }
 
 impl RunnableGraph {
@@ -78,7 +94,16 @@ impl RunnableGraph {
         *node = val;
     }
 
-    fn get_node_value(&self, id: NodeRef) -> f64 {
+    fn update_data_value(&mut self, id: NodeId, v: f64) {
+        match self.data.get_mut(&id) {
+            None => {
+                let _ = self.data.insert(id, Data::new(v));
+            }
+            Some(d) => (*d).value = v,
+        }
+    }
+
+    fn get_node_value(&mut self, id: NodeRef) -> f64 {
         match id {
             NodeRef::InputNode(id) => match self.inputs.get(&id) {
                 None => panic!("Failed to fetch input node with id {:?}", id),
@@ -86,16 +111,20 @@ impl RunnableGraph {
             },
             NodeRef::OpNode(id) => match self.nodes.get(&id) {
                 None => panic!("Failed to fetch operation node with id {:?}", id),
-                Some(n) => self.get_value_for_node(n),
+                Some(n) => {
+                    let value = self.get_value_for_node(&n.clone());
+                    self.update_data_value(id, value);
+                    value
+                }
             },
         }
     }
 
-    pub fn get_value(&self) -> f64 {
+    pub fn forward(&mut self) -> f64 {
         self.get_node_value(self.root)
     }
 
-    fn get_value_for_node(&self, node: &Node) -> f64 {
+    fn get_value_for_node(&mut self, node: &Node) -> f64 {
         match node {
             Node::Operation(n) => {
                 let left_val = self.get_node_value(n.left_id);
@@ -193,6 +222,7 @@ impl<'a> GraphBuilder<'a> {
             root: self.root,
             nodes: self.nodes.clone(),
             inputs: self.inputs.clone(),
+            data: HashMap::new(),
         }
     }
 }
@@ -301,16 +331,16 @@ mod tests {
 
         let mut g = builder.make();
 
-        assert_eq!(g.get_value(), 1.);
+        assert_eq!(g.forward(), 1.);
 
         g.set_input(input.id, 1.);
-        assert_eq!(g.get_value(), 2.);
+        assert_eq!(g.forward(), 2.);
 
         let builder = builder * 4.;
         let mut g = builder.make();
 
         g.set_input(input.id, 2.);
-        assert_eq!(g.get_value(), 12.);
+        assert_eq!(g.forward(), 12.);
     }
 
     #[test]
@@ -335,6 +365,6 @@ mod tests {
 
         g.set_input(input1.id, 1.5);
         g.set_input(input2.id, 2.5);
-        assert_eq!(g.get_value(), 36.625);
+        assert_eq!(g.forward(), 36.625);
     }
 }
