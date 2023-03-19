@@ -57,6 +57,18 @@ pub struct InputNode<'a> {
     builder: GraphBuilder<'a>,
 }
 
+impl<'a> Into<&'a GraphBuilder<'a>> for &'a InputNode<'a> {
+    fn into(self) -> &'a GraphBuilder<'a> {
+        &self.builder
+    }
+}
+
+impl<'a> Into<GraphBuilder<'a>> for InputNode<'a> {
+    fn into(self) -> GraphBuilder<'a> {
+        self.builder
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum Node {
     Operation(GraphBuilderNode),
@@ -83,14 +95,14 @@ impl IdGenerator {
         NodeId(self.current_id)
     }
 
-    fn new() -> IdGenerator {
+    pub fn new() -> IdGenerator {
         IdGenerator { current_id: 0 }
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct GraphBuilder<'a> {
-    root: NodeRef,
+    pub root: NodeRef,
     nodes: HashMap<NodeId, Node>,
     ids: Rc<RefCell<&'a mut IdGenerator>>,
     inputs: HashMap<NodeId, f64>,
@@ -209,7 +221,7 @@ impl RunnableGraph {
                 Operation::Mul => {
                     data.gradient += other_value * root_grad;
                 }
-                _ => todo!(),
+                v => todo!("{:?}", v),
             }
         }
     }
@@ -341,6 +353,26 @@ impl<'a> GraphBuilder<'a> {
         }
     }
 
+    pub fn new_of_immediate(ids: Rc<RefCell<&'a mut IdGenerator>>, val: f64) -> GraphBuilder<'a> {
+        let id = ids.borrow_mut().get_id();
+        GraphBuilder {
+            root: NodeRef::OpNode(id),
+            nodes: HashMap::from([(id, Node::Immediate(val))]),
+            ids,
+            inputs: HashMap::new(),
+        }
+    }
+
+    pub fn create_immediate(&self, val: f64) -> GraphBuilder<'a> {
+        let id = self.ids.borrow_mut().get_id();
+        GraphBuilder {
+            root: NodeRef::OpNode(id),
+            nodes: HashMap::from([(id, Node::Immediate(val))]),
+            ids: self.ids.clone(),
+            inputs: HashMap::new(),
+        }
+    }
+
     pub fn create_input(&self) -> InputNode<'a> {
         let id = self.ids.borrow_mut().get_id();
 
@@ -358,7 +390,7 @@ impl<'a> GraphBuilder<'a> {
         }
     }
 
-    fn make(&self) -> RunnableGraph {
+    pub fn make(&self) -> RunnableGraph {
         RunnableGraph {
             root: self.root,
             nodes: self.nodes.clone(),
@@ -367,7 +399,7 @@ impl<'a> GraphBuilder<'a> {
         }
     }
 
-    fn relu(self) -> GraphBuilder<'a> {
+    pub fn relu(self) -> GraphBuilder<'a> {
         GraphBuilder::with_immediate(Operation::Relu, self.clone(), 0.)
     }
 }
