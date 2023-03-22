@@ -1,7 +1,7 @@
 use std::{
     cell::RefCell,
     collections::HashMap,
-    ops::{Add, Deref, Div, Mul, Neg, Sub},
+    ops::{Add, Div, Mul, Neg, Sub},
     rc::Rc,
 };
 
@@ -70,9 +70,21 @@ impl<'a> Into<GraphBuilder<'a>> for InputNode<'a> {
 }
 
 #[derive(Debug, Clone, Copy)]
+pub struct ImmediateNode {
+    id: NodeId,
+    original_value: f64,
+}
+
+impl ImmediateNode {
+    pub fn new(id: NodeId, original_value: f64) -> ImmediateNode {
+        ImmediateNode { id, original_value }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub enum Node {
     Operation(GraphBuilderNode),
-    Immediate(f64),
+    Immediate(ImmediateNode),
 }
 
 impl Into<Option<GraphBuilderNode>> for &Node {
@@ -110,8 +122,8 @@ pub struct GraphBuilder<'a> {
 
 #[derive(Debug)]
 pub struct Data {
-    value: f64,
-    gradient: f64,
+    pub value: f64,
+    pub gradient: f64,
 }
 
 impl Data {
@@ -128,7 +140,7 @@ pub struct RunnableGraph {
     root: NodeRef,
     nodes: HashMap<NodeId, Node>,
     inputs: HashMap<NodeId, f64>,
-    data: HashMap<NodeId, Data>,
+    pub data: HashMap<NodeId, Data>,
 }
 
 impl RunnableGraph {
@@ -187,7 +199,17 @@ impl RunnableGraph {
                     }
                 }
             }
-            Node::Immediate(v) => *v,
+            Node::Immediate(v) => {
+                let value = self
+                    .data
+                    .get(&v.id)
+                    .map(|d| d.value)
+                    .unwrap_or(v.original_value);
+
+                self.update_data_value(v.id, value);
+
+                value
+            }
         }
     }
 
@@ -249,71 +271,63 @@ impl RunnableGraph {
         }
     }
 
-    fn apply_grads(&mut self, root_id: NodeId, node: GraphBuilderNode) {
-        let root_value = self.value_for_id(NodeRef::OpNode(root_id));
-        let root_grad = self.grad_for_id(root_id);
+    fn _backwards(&mut self, id: NodeRef) {
+        let root_value = self.value_for_id(id);
 
-        let left_value = self.value_for_id(node.left_id.into());
-        let right_value = self.value_for_id(node.right_id.into());
+        let id = match id {
+            NodeRef::OpNode(id) => id,
+            _ => return,
+        };
 
-        self.update(
-            node.left_id,
-            node.operation,
-            root_value,
-            root_grad,
-            right_value,
-        );
-        self.update(
-            node.right_id,
-            node.operation,
-            root_value,
-            root_grad,
-            left_value,
-        );
-    }
+        let root_grad = self.grad_for_id(id);
 
-    fn _backwards(&mut self, id: NodeId) {
         let node = self.nodes.get(&id).unwrap();
         let node: Option<GraphBuilderNode> = node.into();
 
         let _ = node.map(|node| {
-            let _ = node.left_id.as_op_node_id().map(|id| {
-                let node = self.nodes.get(&id).unwrap();
-                let node: Option<GraphBuilderNode> = node.into();
-                let _ = node.map(|node| {
-                    self.apply_grads(id, node);
-                    self._backwards(id);
-                });
-            });
+            let right_value = self.value_for_id(node.right_id.into());
+            self.update(
+                node.left_id,
+                node.operation,
+                root_value,
+                root_grad,
+                right_value,
+            );
+            self._backwards(node.left_id.into());
 
-            let _ = node.right_id.as_op_node_id().map(|id| {
-                let node = self.nodes.get(&id).unwrap();
-                let node: Option<GraphBuilderNode> = node.into();
-                let _ = node.map(|node| {
-                    self.apply_grads(id, node);
-                    self._backwards(id);
-                });
-            });
+            let left_value = self.value_for_id(node.left_id.into());
+            self.update(
+                node.right_id,
+                node.operation,
+                root_value,
+                root_grad,
+                left_value,
+            );
+            self._backwards(node.right_id.into());
         });
     }
 
-    fn zero_grads(&mut self) {
+    pub fn zero_grads(&mut self) {
         self.data.values_mut().for_each(|v| {
             v.gradient = 0.;
         })
     }
 
     pub fn backwards(&mut self, out_grad: f64) {
-        self.zero_grads();
+        let root_value = self.value_for_id(self.root);
 
-        let mut data = self.data_for_id_mut(self.root.into());
-        data.gradient = out_grad;
+        let operation = {
+            let node: Option<GraphBuilderNode> = self.nodes.get(&self.root.into()).unwrap().into();
+            node.unwrap().operation
+        };
+
+        self.update(self.root, operation, root_value, out_grad, 0.);
 
         self._backwards(self.root.into())
     }
 
     pub fn update_weights(&mut self, learning_rate: f64) {
-        self.data.values_mut().for_each(|v| {
+        self.data.iter_mut().for_each(|(id, v)| {
             v.value -= learning_rate * v.gradient;
         })
     }
@@ -350,7 +364,7 @@ impl<'a> GraphBuilder<'a> {
         let mut ids = left.ids.borrow_mut();
 
         let id = ids.get_id();
-        nodes.insert(id, Node::Immediate(right_val));
+        nodes.insert(id, Node::Immediate(ImmediateNode::new(id, right_val)));
 
         let new_root = GraphBuilderNode {
             operation: op,
@@ -375,7 +389,7 @@ impl<'a> GraphBuilder<'a> {
         let mut ids = right.ids.borrow_mut();
 
         let id = ids.get_id();
-        nodes.insert(id, Node::Immediate(left));
+        nodes.insert(id, Node::Immediate(ImmediateNode::new(id, left)));
 
         let new_root = GraphBuilderNode {
             operation: op,
@@ -407,7 +421,7 @@ impl<'a> GraphBuilder<'a> {
         let id = ids.borrow_mut().get_id();
         GraphBuilder {
             root: NodeRef::OpNode(id),
-            nodes: HashMap::from([(id, Node::Immediate(val))]),
+            nodes: HashMap::from([(id, Node::Immediate(ImmediateNode::new(id, val)))]),
             ids,
             inputs: HashMap::new(),
         }
@@ -417,7 +431,7 @@ impl<'a> GraphBuilder<'a> {
         let id = self.ids.borrow_mut().get_id();
         GraphBuilder {
             root: NodeRef::OpNode(id),
-            nodes: HashMap::from([(id, Node::Immediate(val))]),
+            nodes: HashMap::from([(id, Node::Immediate(ImmediateNode::new(id, val)))]),
             ids: self.ids.clone(),
             inputs: HashMap::new(),
         }
@@ -711,5 +725,34 @@ mod tests {
         g.set_input(b.id, 2.);
 
         assert_eq!(g.forward(), 2.4);
+    }
+
+    #[test]
+    fn test_back() {
+        let ids = &mut IdGenerator::new();
+        let ids = Rc::new(RefCell::new(ids));
+
+        let graph = GraphBuilder::new(ids);
+        let a = &graph.create_input();
+        let b = &graph.create_input();
+
+        let c = (a + b) * 2.;
+
+        let c = c.relu();
+
+        let g = &mut c.make();
+
+        g.set_input(a.id, 1.);
+        g.set_input(b.id, 2.);
+
+        let v = g.forward();
+
+        assert_eq!(v, 6.);
+
+        dbg!(&g);
+
+        g.backwards(2.);
+
+        dbg!(g);
     }
 }

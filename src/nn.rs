@@ -1,4 +1,7 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, cmp::min_by, rc::Rc};
+
+use rand::Rng;
+use std::cmp::max_by;
 
 use crate::engine::{GraphBuilder, IdGenerator, InputNode, NodeId, RunnableGraph};
 
@@ -7,12 +10,26 @@ pub struct Neuron<'a> {
 }
 
 impl<'a> Neuron<'a> {
+    fn max(left: f64, right: f64) -> f64 {
+        max_by(left, right, |l, r| l.partial_cmp(r).unwrap())
+    }
+
+    fn min(left: f64, right: f64) -> f64 {
+        min_by(left, right, |l, r| l.partial_cmp(r).unwrap())
+    }
+
     fn new(inputs: Vec<GraphBuilder<'a>>) -> Neuron<'a> {
         let factory = inputs.first().unwrap();
 
+        let mut rng = rand::thread_rng();
+
         let weights: Vec<GraphBuilder> = inputs
             .iter()
-            .map(|i| &factory.create_immediate(0.) * i)
+            .map(|i| {
+                let v = Self::max(Self::min(rng.gen(), 1.), -1.);
+                // let v = 0.1;
+                &factory.create_immediate(v) * i
+            })
             .collect();
 
         let mut first = weights[0].clone();
@@ -22,7 +39,9 @@ impl<'a> Neuron<'a> {
             first = first + g.clone();
         }
 
-        let bias = factory.create_immediate(0.);
+        let v = Self::max(Self::min(rng.gen(), 1.), -1.);
+        // let v = 0.1;
+        let bias = factory.create_immediate(v);
 
         Neuron {
             op: (first + bias).relu(),
@@ -100,51 +119,58 @@ where
 #[cfg(test)]
 mod tests {
 
+    use rand::{seq::SliceRandom, thread_rng};
+
     use crate::nn::*;
 
     #[test]
     fn test_mlp() {
-        let mut mlp = MultiLayerPerceptron::new(Vec::from([2]));
+        let mut mlp = MultiLayerPerceptron::new(Vec::from([2, 2]));
 
-        let x = vec![vec![1., 0.], vec![0., 1.]];
+        dbg!(&mlp);
 
-        let y = &vec![-1., 1.];
+        let xy = &vec![
+            (vec![1., 0.], 1.),
+            (vec![0., 1.], 1.),
+            (vec![1., 1.], 0.),
+            (vec![0., 0.], 0.),
+        ];
 
-        let epochs = 100;
+        let epochs = 1000;
         for i in 0..epochs {
-            let preds: Vec<f64> = x.iter().map(|x| mlp.forward(x)).collect();
+            let mut xy = xy.clone();
+            xy.shuffle(&mut thread_rng());
 
-            let acc = (&preds)
+            let (acc, loss): (Vec<f64>, Vec<f64>) = xy
                 .iter()
-                .zip(y)
-                .map(|(y_pred, y)| {
-                    if (*y_pred > 0.) == (*y > 0.) {
+                .map(|(x, y)| {
+                    let y_pred = mlp.forward(x);
+
+                    let loss = 0.5 * (y_pred - y).powf(2.);
+
+                    let d_loss = y_pred - y;
+
+                    mlp.output.zero_grads();
+                    mlp.backward(d_loss);
+                    mlp.output.update_weights(0.1);
+
+                    let acc = if (y_pred > 0.5) == (*y > 0.5) {
                         1.0
                     } else {
                         0.0
-                    }
+                    };
+
+                    (acc, loss)
                 })
-                .mean();
+                .unzip();
 
-            let loss = (&preds)
-                .iter()
-                .zip(y)
-                .map(|(y_pred, y)| {
-                    let v = 1. - y_pred * y;
-                    if v > 0. {
-                        v
-                    } else {
-                        0.
-                    }
-                })
-                .mean();
-
-            println!("Epoch {i} - Acc={acc}, Loss={loss}");
-
-            mlp.backward(loss);
-
-            let learning_rate = 1.0 - 0.9 * (i as f64) / 100.;
-            mlp.output.update_weights(learning_rate)
+            if i % 100 == 0 {
+                println!(
+                    "Epoch {i} - Acc={:?}, Loss={:?}",
+                    acc.iter().mean(),
+                    loss.iter().mean()
+                );
+            }
         }
     }
 }
