@@ -39,7 +39,6 @@ impl<'a> Neuron<'a> {
         }
 
         let v = Self::max(Self::min(rng.gen(), 1.), -1.);
-        // let v = 0.1;
         let bias = factory.create_immediate(v);
 
         Neuron {
@@ -51,11 +50,11 @@ impl<'a> Neuron<'a> {
 #[derive(Debug)]
 pub struct MultiLayerPerceptron {
     inputs: Vec<NodeId>,
-    output: RunnableGraph,
+    pub output: RunnableGraph,
 }
 
 impl MultiLayerPerceptron {
-    fn new(sizes: Vec<u32>) -> MultiLayerPerceptron {
+    pub fn new(sizes: Vec<u32>) -> MultiLayerPerceptron {
         let ids = &mut IdGenerator::new();
         let ids = Rc::new(RefCell::new(ids));
 
@@ -78,7 +77,7 @@ impl MultiLayerPerceptron {
         }
     }
 
-    fn forward(&mut self, inputs: &Vec<f64>) -> f64 {
+    pub fn forward(&mut self, inputs: &Vec<f64>) -> f64 {
         if inputs.len() != self.inputs.len() {
             panic!(
                 "Expected {} inputs, but got {}",
@@ -94,7 +93,7 @@ impl MultiLayerPerceptron {
         self.output.forward()
     }
 
-    fn backward(&mut self, out_grad: f64) {
+    pub fn backward(&mut self, out_grad: f64) {
         self.output.backwards(out_grad);
     }
 }

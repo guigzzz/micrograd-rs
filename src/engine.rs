@@ -140,7 +140,7 @@ pub struct RunnableGraph {
     root: NodeRef,
     nodes: HashMap<NodeId, Node>,
     inputs: HashMap<NodeId, f64>,
-    pub data: HashMap<NodeId, Data>,
+    data: HashMap<NodeId, Data>,
 }
 
 impl RunnableGraph {
@@ -214,15 +214,11 @@ impl RunnableGraph {
     }
 
     fn data_for_id_mut(&mut self, id: NodeId) -> &mut Data {
-        self.data
-            .get_mut(&id)
-            .expect(format!("Failed to fetch data for {:?}", id).as_str())
+        self.data.get_mut(&id).unwrap()
     }
 
     fn data_for_id(&self, id: NodeId) -> &Data {
-        self.data
-            .get(&id)
-            .expect(format!("Failed to fetch data for {:?}", id).as_str())
+        self.data.get(&id).unwrap()
     }
 
     fn grad_for_id(&self, id: NodeId) -> f64 {
@@ -232,10 +228,7 @@ impl RunnableGraph {
     fn value_for_id(&self, id: NodeRef) -> f64 {
         match id {
             NodeRef::InputNode(n) => {
-                let v = self
-                    .inputs
-                    .get(&n)
-                    .expect(format!("Failed to fetch input for {:?}", id).as_str());
+                let v = self.inputs.get(&n).unwrap();
                 *v
             }
             NodeRef::OpNode(n) => self.data_for_id(n).value,
