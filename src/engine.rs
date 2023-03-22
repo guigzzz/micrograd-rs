@@ -327,7 +327,7 @@ impl RunnableGraph {
     }
 
     pub fn update_weights(&mut self, learning_rate: f64) {
-        self.data.iter_mut().for_each(|(id, v)| {
+        self.data.values_mut().for_each(|v| {
             v.value -= learning_rate * v.gradient;
         })
     }
@@ -749,10 +749,6 @@ mod tests {
 
         assert_eq!(v, 6.);
 
-        dbg!(&g);
-
         g.backwards(2.);
-
-        dbg!(g);
     }
 }

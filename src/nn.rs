@@ -27,7 +27,6 @@ impl<'a> Neuron<'a> {
             .iter()
             .map(|i| {
                 let v = Self::max(Self::min(rng.gen(), 1.), -1.);
-                // let v = 0.1;
                 &factory.create_immediate(v) * i
             })
             .collect();
@@ -124,10 +123,8 @@ mod tests {
     use crate::nn::*;
 
     #[test]
-    fn test_mlp() {
+    fn test_mlp_xor() {
         let mut mlp = MultiLayerPerceptron::new(Vec::from([2, 2]));
-
-        dbg!(&mlp);
 
         let xy = &vec![
             (vec![1., 0.], 1.),
@@ -172,5 +169,22 @@ mod tests {
                 );
             }
         }
+
+        let acc = xy
+            .iter()
+            .map(|(x, y)| {
+                let y_pred = mlp.forward(x);
+
+                let acc = if (y_pred > 0.5) == (*y > 0.5) {
+                    1.0
+                } else {
+                    0.0
+                };
+
+                acc
+            })
+            .mean();
+
+        assert_eq!(acc, 1.0)
     }
 }
