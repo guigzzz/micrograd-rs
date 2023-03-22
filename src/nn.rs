@@ -30,6 +30,7 @@ impl<'a> Neuron<'a> {
     }
 }
 
+#[derive(Debug)]
 pub struct MultiLayerPerceptron {
     inputs: Vec<NodeId>,
     output: RunnableGraph,
@@ -47,7 +48,7 @@ impl MultiLayerPerceptron {
 
         let builders: Vec<GraphBuilder> = inputs.into_iter().map(|i| i.into()).collect();
 
-        let outputs = sizes[1..].iter().fold(builders.clone(), |b, s| {
+        let outputs = sizes.iter().skip(1).fold(builders.clone(), |b, s| {
             (0..*s).map(|_| Neuron::new(b.clone()).op).collect()
         });
 
@@ -59,7 +60,7 @@ impl MultiLayerPerceptron {
         }
     }
 
-    fn forward(&mut self, inputs: Vec<f64>) -> f64 {
+    fn forward(&mut self, inputs: &Vec<f64>) -> f64 {
         if inputs.len() != self.inputs.len() {
             panic!(
                 "Expected {} inputs, but got {}",
@@ -74,22 +75,76 @@ impl MultiLayerPerceptron {
 
         self.output.forward()
     }
+
+    fn backward(&mut self, out_grad: f64) {
+        self.output.backwards(out_grad);
+    }
+}
+
+pub trait Mean {
+    fn mean(self) -> f64;
+}
+
+impl<F, T> Mean for T
+where
+    T: Iterator<Item = F>,
+    F: std::borrow::Borrow<f64>,
+{
+    fn mean(self) -> f64 {
+        self.zip(1..).fold(0., |s, (e, i)| {
+            (*e.borrow() + s * (i - 1) as f64) / i as f64
+        })
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::{cell::RefCell, rc::Rc};
 
-    use crate::{
-        engine::{IdGenerator, InputNode},
-        nn::*,
-    };
+    use crate::nn::*;
 
     #[test]
     fn test_mlp() {
-        let mut mlp = MultiLayerPerceptron::new(Vec::from([4, 3, 2]));
+        let mut mlp = MultiLayerPerceptron::new(Vec::from([2]));
 
-        let value = mlp.forward(Vec::from([1., 2., 3., 4.]));
-        assert_eq!(value, 0.);
+        let x = vec![vec![1., 0.], vec![0., 1.]];
+
+        let y = &vec![-1., 1.];
+
+        let epochs = 100;
+        for i in 0..epochs {
+            let preds: Vec<f64> = x.iter().map(|x| mlp.forward(x)).collect();
+
+            let acc = (&preds)
+                .iter()
+                .zip(y)
+                .map(|(y_pred, y)| {
+                    if (*y_pred > 0.) == (*y > 0.) {
+                        1.0
+                    } else {
+                        0.0
+                    }
+                })
+                .mean();
+
+            let loss = (&preds)
+                .iter()
+                .zip(y)
+                .map(|(y_pred, y)| {
+                    let v = 1. - y_pred * y;
+                    if v > 0. {
+                        v
+                    } else {
+                        0.
+                    }
+                })
+                .mean();
+
+            println!("Epoch {i} - Acc={acc}, Loss={loss}");
+
+            mlp.backward(loss);
+
+            let learning_rate = 1.0 - 0.9 * (i as f64) / 100.;
+            mlp.output.update_weights(learning_rate)
+        }
     }
 }

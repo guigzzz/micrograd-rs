@@ -1,7 +1,7 @@
 use std::{
     cell::RefCell,
     collections::HashMap,
-    ops::{Add, Div, Mul, Neg, Sub},
+    ops::{Add, Deref, Div, Mul, Neg, Sub},
     rc::Rc,
 };
 
@@ -207,13 +207,33 @@ impl RunnableGraph {
         self.data_for_id(id).gradient
     }
 
-    fn value_for_id(&self, id: NodeId) -> f64 {
-        self.data_for_id(id).value
+    fn value_for_id(&self, id: NodeRef) -> f64 {
+        match id {
+            NodeRef::InputNode(n) => {
+                let v = self
+                    .inputs
+                    .get(&n)
+                    .expect(format!("Failed to fetch input for {:?}", id).as_str());
+                *v
+            }
+            NodeRef::OpNode(n) => self.data_for_id(n).value,
+        }
     }
 
-    fn update(&mut self, id: NodeId, operation: Operation, root_grad: f64, other_value: f64) {
+    fn update(
+        &mut self,
+        id: NodeRef,
+        operation: Operation,
+        root_value: f64,
+        root_grad: f64,
+        other_value: f64,
+    ) {
         {
-            let data = self.data_for_id_mut(id);
+            if id.as_op_node_id().is_none() {
+                return;
+            }
+
+            let data = self.data_for_id_mut(id.into());
             match operation {
                 Operation::Add => {
                     data.gradient += root_grad;
@@ -221,19 +241,35 @@ impl RunnableGraph {
                 Operation::Mul => {
                     data.gradient += other_value * root_grad;
                 }
+                Operation::Relu => {
+                    data.gradient += if root_value > 0. { 1.0 } else { 0.0 } * root_grad
+                }
                 v => todo!("{:?}", v),
             }
         }
     }
 
     fn apply_grads(&mut self, root_id: NodeId, node: GraphBuilderNode) {
+        let root_value = self.value_for_id(NodeRef::OpNode(root_id));
         let root_grad = self.grad_for_id(root_id);
 
         let left_value = self.value_for_id(node.left_id.into());
         let right_value = self.value_for_id(node.right_id.into());
 
-        self.update(node.left_id.into(), node.operation, root_grad, right_value);
-        self.update(node.right_id.into(), node.operation, root_grad, left_value);
+        self.update(
+            node.left_id,
+            node.operation,
+            root_value,
+            root_grad,
+            right_value,
+        );
+        self.update(
+            node.right_id,
+            node.operation,
+            root_value,
+            root_grad,
+            left_value,
+        );
     }
 
     fn _backwards(&mut self, id: NodeId) {
@@ -261,11 +297,25 @@ impl RunnableGraph {
         });
     }
 
-    pub fn backwards(&mut self) {
+    fn zero_grads(&mut self) {
+        self.data.values_mut().for_each(|v| {
+            v.gradient = 0.;
+        })
+    }
+
+    pub fn backwards(&mut self, out_grad: f64) {
+        self.zero_grads();
+
         let mut data = self.data_for_id_mut(self.root.into());
-        data.gradient = 1.;
+        data.gradient = out_grad;
 
         self._backwards(self.root.into())
+    }
+
+    pub fn update_weights(&mut self, learning_rate: f64) {
+        self.data.values_mut().for_each(|v| {
+            v.value -= learning_rate * v.gradient;
+        })
     }
 }
 
