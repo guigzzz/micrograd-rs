@@ -57,12 +57,6 @@ pub struct InputNode<'a> {
     builder: GraphBuilder<'a>,
 }
 
-impl<'a> Into<&'a GraphBuilder<'a>> for &'a InputNode<'a> {
-    fn into(self) -> &'a GraphBuilder<'a> {
-        &self.builder
-    }
-}
-
 impl<'a> Into<GraphBuilder<'a>> for InputNode<'a> {
     fn into(self) -> GraphBuilder<'a> {
         self.builder
@@ -188,13 +182,13 @@ impl RunnableGraph {
                     Operation::Mul => left_val * right_val,
                     Operation::Add => left_val + right_val,
                     Operation::Sub => left_val - right_val,
-                    Operation::Div => left_val / right_val,
-                    Operation::Pow => left_val.pow(right_val),
+                    Operation::Div => right_val / left_val,
+                    Operation::Pow => right_val.pow(left_val),
                     Operation::Relu => {
-                        if left_val < 0. {
+                        if right_val < 0. {
                             0.
                         } else {
-                            left_val
+                            right_val
                         }
                     }
                 }
@@ -351,54 +345,8 @@ impl<'a> GraphBuilder<'a> {
         }
     }
 
-    fn with_immediate(op: Operation, left: GraphBuilder<'a>, right_val: f64) -> GraphBuilder<'a> {
-        let mut nodes = left.nodes.clone();
-
-        let mut ids = left.ids.borrow_mut();
-
-        let id = ids.get_id();
-        nodes.insert(id, Node::Immediate(ImmediateNode::new(id, right_val)));
-
-        let new_root = GraphBuilderNode {
-            operation: op,
-            left_id: left.root,
-            right_id: NodeRef::OpNode(id),
-        };
-
-        let root_id = ids.get_id();
-        nodes.insert(root_id, Node::Operation(new_root));
-
-        GraphBuilder {
-            root: NodeRef::OpNode(root_id),
-            nodes,
-            ids: left.ids.clone(),
-            inputs: left.inputs.clone(),
-        }
-    }
-
-    fn with_immediate2(op: Operation, left: f64, right: GraphBuilder<'a>) -> GraphBuilder<'a> {
-        let mut nodes = right.nodes.clone();
-
-        let mut ids = right.ids.borrow_mut();
-
-        let id = ids.get_id();
-        nodes.insert(id, Node::Immediate(ImmediateNode::new(id, left)));
-
-        let new_root = GraphBuilderNode {
-            operation: op,
-            left_id: NodeRef::OpNode(id),
-            right_id: right.root,
-        };
-
-        let root_id = ids.get_id();
-        nodes.insert(root_id, Node::Operation(new_root));
-
-        GraphBuilder {
-            root: NodeRef::OpNode(root_id),
-            nodes,
-            ids: right.ids.clone(),
-            inputs: right.inputs.clone(),
-        }
+    fn with_immediate(op: Operation, left: f64, right: GraphBuilder<'a>) -> GraphBuilder<'a> {
+        Self::combine(op, Self::new_of_immediate(right.ids.clone(), left), right)
     }
 
     pub fn new(ids: Rc<RefCell<&'a mut IdGenerator>>) -> GraphBuilder<'a> {
@@ -457,7 +405,7 @@ impl<'a> GraphBuilder<'a> {
     }
 
     pub fn relu(self) -> GraphBuilder<'a> {
-        GraphBuilder::with_immediate(Operation::Relu, self.clone(), 0.)
+        GraphBuilder::with_immediate(Operation::Relu, 0., self.clone())
     }
 }
 
@@ -481,7 +429,7 @@ impl<'a> Add<f64> for GraphBuilder<'a> {
     type Output = GraphBuilder<'a>;
 
     fn add(self, rhs: f64) -> Self::Output {
-        GraphBuilder::with_immediate(Operation::Add, self, rhs)
+        GraphBuilder::with_immediate(Operation::Add, rhs, self)
     }
 }
 
@@ -497,7 +445,7 @@ impl<'a> Add<f64> for InputNode<'a> {
     type Output = GraphBuilder<'a>;
 
     fn add(self, rhs: f64) -> Self::Output {
-        GraphBuilder::with_immediate(Operation::Add, self.builder, rhs)
+        GraphBuilder::with_immediate(Operation::Add, rhs, self.builder)
     }
 }
 
@@ -505,7 +453,7 @@ impl<'a> Add<f64> for &InputNode<'a> {
     type Output = GraphBuilder<'a>;
 
     fn add(self, rhs: f64) -> Self::Output {
-        GraphBuilder::with_immediate(Operation::Add, self.builder.clone(), rhs)
+        GraphBuilder::with_immediate(Operation::Add, rhs, self.builder.clone())
     }
 }
 
@@ -513,7 +461,7 @@ impl<'a> Add<GraphBuilder<'a>> for f64 {
     type Output = GraphBuilder<'a>;
 
     fn add(self, rhs: GraphBuilder<'a>) -> Self::Output {
-        GraphBuilder::with_immediate(Operation::Add, rhs, self)
+        GraphBuilder::with_immediate(Operation::Add, self, rhs)
     }
 }
 
@@ -545,7 +493,7 @@ impl<'a> Neg for &InputNode<'a> {
     type Output = GraphBuilder<'a>;
 
     fn neg(self) -> Self::Output {
-        GraphBuilder::with_immediate2(Operation::Sub, 0., self.builder.clone())
+        GraphBuilder::with_immediate(Operation::Sub, 0., self.builder.clone())
     }
 }
 
@@ -577,7 +525,7 @@ impl<'a> Mul<GraphBuilder<'a>> for f64 {
     type Output = GraphBuilder<'a>;
 
     fn mul(self, rhs: GraphBuilder<'a>) -> Self::Output {
-        GraphBuilder::with_immediate(Operation::Mul, rhs.clone(), self)
+        GraphBuilder::with_immediate(Operation::Mul, self, rhs.clone())
     }
 }
 
@@ -601,7 +549,7 @@ impl<'a> Pow<f64> for &InputNode<'a> {
     type Output = GraphBuilder<'a>;
 
     fn pow(self, rhs: f64) -> Self::Output {
-        GraphBuilder::with_immediate(Operation::Pow, self.builder.clone(), rhs)
+        GraphBuilder::with_immediate(Operation::Pow, rhs, self.builder.clone())
     }
 }
 
@@ -609,7 +557,7 @@ impl<'a> Pow<f64> for GraphBuilder<'a> {
     type Output = GraphBuilder<'a>;
 
     fn pow(self, rhs: f64) -> Self::Output {
-        GraphBuilder::with_immediate(Operation::Pow, self.clone(), rhs)
+        GraphBuilder::with_immediate(Operation::Pow, rhs, self.clone())
     }
 }
 
@@ -617,7 +565,7 @@ impl<'a> Div<f64> for &GraphBuilder<'a> {
     type Output = GraphBuilder<'a>;
 
     fn div(self, rhs: f64) -> Self::Output {
-        GraphBuilder::with_immediate(Operation::Div, self.clone(), rhs)
+        GraphBuilder::with_immediate(Operation::Div, rhs, self.clone())
     }
 }
 
@@ -625,7 +573,7 @@ impl<'a> Div<&GraphBuilder<'a>> for f64 {
     type Output = GraphBuilder<'a>;
 
     fn div(self, rhs: &GraphBuilder<'a>) -> Self::Output {
-        GraphBuilder::with_immediate(Operation::Div, rhs.clone(), self)
+        GraphBuilder::with_immediate(Operation::Div, self, rhs.clone())
     }
 }
 
@@ -633,7 +581,7 @@ impl<'a> Mul<f64> for GraphBuilder<'a> {
     type Output = GraphBuilder<'a>;
 
     fn mul(self, rhs: f64) -> Self::Output {
-        GraphBuilder::with_immediate(Operation::Mul, self, rhs)
+        GraphBuilder::with_immediate(Operation::Mul, rhs, self)
     }
 }
 
