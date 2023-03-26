@@ -69,15 +69,6 @@ pub enum Node {
     Input(InpNode),
 }
 
-impl Into<Option<GraphBuilderNode>> for &Node {
-    fn into(self) -> Option<GraphBuilderNode> {
-        match self {
-            Node::Operation(n) => Some(*n),
-            _ => None,
-        }
-    }
-}
-
 #[derive(Debug)]
 pub struct IdGenerator {
     current_id: usize,
@@ -230,37 +221,6 @@ impl RunnableGraph {
         }
     }
 
-    fn _backwards(&mut self, id: NodeId) {
-        let root_value = self.value_for_id(id);
-
-        let root_grad = self.grad_for_id(id);
-
-        let node = self.nodes.get(id.0).unwrap();
-        let node: Option<GraphBuilderNode> = node.into();
-
-        let _ = node.map(|node| {
-            let right_value = self.value_for_id(node.right_id.into());
-            self.update(
-                node.left_id,
-                node.operation,
-                root_value,
-                root_grad,
-                right_value,
-            );
-            self._backwards(node.left_id.into());
-
-            let left_value = self.value_for_id(node.left_id.into());
-            self.update(
-                node.right_id,
-                node.operation,
-                root_value,
-                root_grad,
-                left_value,
-            );
-            self._backwards(node.right_id.into());
-        });
-    }
-
     pub fn zero_grads(&mut self) {
         self.data.iter_mut().for_each(|v| {
             v.gradient = 0.;
@@ -270,14 +230,47 @@ impl RunnableGraph {
     pub fn backwards(&mut self, out_grad: f64) {
         let root_value = self.value_for_id(self.root);
 
-        let operation = {
-            let node: Option<GraphBuilderNode> = self.nodes.get(self.root.0).unwrap().into();
-            node.unwrap().operation
+        let operation = match self.nodes.get(self.root.0).unwrap() {
+            Node::Operation(n) => n.operation,
+            _ => panic!(),
         };
 
         self.update(self.root, operation, root_value, out_grad, 0.);
 
-        self._backwards(self.root.into())
+        self.nodes
+            .clone()
+            .iter()
+            .enumerate()
+            .rev()
+            .for_each(|(id, node)| {
+                let id = NodeId(id);
+
+                let node = match node {
+                    Node::Operation(n) => n,
+                    _ => return,
+                };
+
+                let root_value = self.value_for_id(id);
+                let root_grad = self.grad_for_id(id);
+
+                let right_value = self.value_for_id(node.right_id.into());
+                self.update(
+                    node.left_id,
+                    node.operation,
+                    root_value,
+                    root_grad,
+                    right_value,
+                );
+
+                let left_value = self.value_for_id(node.left_id.into());
+                self.update(
+                    node.right_id,
+                    node.operation,
+                    root_value,
+                    root_grad,
+                    left_value,
+                );
+            })
     }
 
     pub fn update_weights(&mut self, learning_rate: f64) {
