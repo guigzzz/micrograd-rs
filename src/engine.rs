@@ -85,8 +85,9 @@ pub struct IdGenerator {
 
 impl IdGenerator {
     fn get_id(&mut self) -> NodeId {
+        let id = self.current_id;
         self.current_id += 1;
-        NodeId(self.current_id)
+        NodeId(id)
     }
 
     pub fn new() -> IdGenerator {
@@ -119,38 +120,27 @@ impl Data {
 #[derive(Debug)]
 pub struct RunnableGraph {
     root: NodeId,
-    nodes: HashMap<NodeId, Node>,
-    data: HashMap<NodeId, Data>,
+    nodes: Vec<Node>,
+    data: Vec<Data>,
 }
 
 impl RunnableGraph {
     pub fn set_input(&mut self, inp: NodeId, val: f64) {
-        let node = self.nodes.get_mut(&inp).unwrap();
-        match node {
-            Node::Input(_) => {
-                let data = self.data.get_mut(&inp);
-                match data {
-                    None => {
-                        self.data.insert(inp, Data::new(val));
-                    }
-                    Some(v) => v.value = val,
-                }
-            }
-            _ => panic!("{:?} with id {:?} is not an input node", node, inp),
-        }
+        let data = self.data.get_mut(inp.0).unwrap();
+        data.value = val;
     }
 
     fn update_data_value(&mut self, id: NodeId, v: f64) {
-        match self.data.get_mut(&id) {
+        match self.data.get_mut(id.0) {
             None => {
-                let _ = self.data.insert(id, Data::new(v));
+                let _ = self.data.insert(id.0, Data::new(v));
             }
             Some(d) => (*d).value = v,
         }
     }
 
     fn get_node_value(&mut self, id: NodeId) -> f64 {
-        match self.nodes.get(&id) {
+        match self.nodes.get(id.0) {
             None => panic!("Failed to fetch operation node with id {:?}", id),
             Some(n) => {
                 let value = self.get_value_for_node(&n.clone());
@@ -187,7 +177,7 @@ impl RunnableGraph {
             Node::Immediate(v) => {
                 let value = self
                     .data
-                    .get(&v.id)
+                    .get(v.id.0)
                     .map(|d| d.value)
                     .unwrap_or(v.original_value);
 
@@ -195,16 +185,16 @@ impl RunnableGraph {
 
                 value
             }
-            Node::Input(n) => self.data.get(&n.id).unwrap().value,
+            Node::Input(n) => self.data.get(n.id.0).unwrap().value,
         }
     }
 
     fn data_for_id_mut(&mut self, id: NodeId) -> &mut Data {
-        self.data.get_mut(&id).unwrap()
+        self.data.get_mut(id.0).unwrap()
     }
 
     fn data_for_id(&self, id: NodeId) -> &Data {
-        self.data.get(&id).unwrap()
+        self.data.get(id.0).unwrap()
     }
 
     fn grad_for_id(&self, id: NodeId) -> f64 {
@@ -245,7 +235,7 @@ impl RunnableGraph {
 
         let root_grad = self.grad_for_id(id);
 
-        let node = self.nodes.get(&id).unwrap();
+        let node = self.nodes.get(id.0).unwrap();
         let node: Option<GraphBuilderNode> = node.into();
 
         let _ = node.map(|node| {
@@ -272,7 +262,7 @@ impl RunnableGraph {
     }
 
     pub fn zero_grads(&mut self) {
-        self.data.values_mut().for_each(|v| {
+        self.data.iter_mut().for_each(|v| {
             v.gradient = 0.;
         })
     }
@@ -281,7 +271,7 @@ impl RunnableGraph {
         let root_value = self.value_for_id(self.root);
 
         let operation = {
-            let node: Option<GraphBuilderNode> = self.nodes.get(&self.root.into()).unwrap().into();
+            let node: Option<GraphBuilderNode> = self.nodes.get(self.root.0).unwrap().into();
             node.unwrap().operation
         };
 
@@ -291,7 +281,7 @@ impl RunnableGraph {
     }
 
     pub fn update_weights(&mut self, learning_rate: f64) {
-        self.data.values_mut().for_each(|v| {
+        self.data.iter_mut().for_each(|v| {
             v.value -= learning_rate * v.gradient;
         })
     }
@@ -365,10 +355,23 @@ impl<'a> GraphBuilder<'a> {
     }
 
     pub fn make(&self) -> RunnableGraph {
+        let mut nodes: Vec<(NodeId, Node)> = self.nodes.clone().into_iter().collect();
+        nodes.sort_by(|a, b| a.0.cmp(&b.0));
+
+        let nodes: Vec<Node> = nodes.iter().map(|(_, node)| node.clone()).collect();
+
+        let data = nodes
+            .iter()
+            .map(|n| match n {
+                Node::Immediate(imm) => Data::new(imm.original_value),
+                _ => Data::new(0.),
+            })
+            .collect();
+
         RunnableGraph {
             root: self.root,
-            nodes: self.nodes.clone(),
-            data: HashMap::new(),
+            nodes,
+            data,
         }
     }
 
