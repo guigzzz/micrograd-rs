@@ -21,34 +21,10 @@ pub enum Operation {
 pub struct NodeId(usize);
 
 #[derive(Debug, Clone, Copy)]
-pub enum NodeRef {
-    OpNode(NodeId),
-    InputNode(NodeId),
-}
-
-impl NodeRef {
-    fn as_op_node_id(self) -> Option<NodeId> {
-        match self {
-            Self::OpNode(id) => Some(id),
-            _ => None,
-        }
-    }
-}
-
-impl Into<NodeId> for NodeRef {
-    fn into(self) -> NodeId {
-        match self {
-            Self::OpNode(id) => id,
-            Self::InputNode(id) => id,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
 pub struct GraphBuilderNode {
     operation: Operation,
-    left_id: NodeRef,
-    right_id: NodeRef,
+    left_id: NodeId,
+    right_id: NodeId,
 }
 
 #[derive(Debug, Clone)]
@@ -76,9 +52,21 @@ impl ImmediateNode {
 }
 
 #[derive(Debug, Clone, Copy)]
+pub struct InpNode {
+    id: NodeId,
+}
+
+impl InpNode {
+    fn new(id: NodeId) -> InpNode {
+        InpNode { id }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub enum Node {
     Operation(GraphBuilderNode),
     Immediate(ImmediateNode),
+    Input(InpNode),
 }
 
 impl Into<Option<GraphBuilderNode>> for &Node {
@@ -108,10 +96,9 @@ impl IdGenerator {
 
 #[derive(Debug, Clone)]
 pub struct GraphBuilder<'a> {
-    pub root: NodeRef,
+    pub root: NodeId,
     nodes: HashMap<NodeId, Node>,
     ids: Rc<RefCell<&'a mut IdGenerator>>,
-    inputs: HashMap<NodeId, f64>,
 }
 
 #[derive(Debug)]
@@ -131,16 +118,26 @@ impl Data {
 
 #[derive(Debug)]
 pub struct RunnableGraph {
-    root: NodeRef,
+    root: NodeId,
     nodes: HashMap<NodeId, Node>,
-    inputs: HashMap<NodeId, f64>,
     data: HashMap<NodeId, Data>,
 }
 
 impl RunnableGraph {
     pub fn set_input(&mut self, inp: NodeId, val: f64) {
-        let node = self.inputs.get_mut(&inp).unwrap();
-        *node = val;
+        let node = self.nodes.get_mut(&inp).unwrap();
+        match node {
+            Node::Input(_) => {
+                let data = self.data.get_mut(&inp);
+                match data {
+                    None => {
+                        self.data.insert(inp, Data::new(val));
+                    }
+                    Some(v) => v.value = val,
+                }
+            }
+            _ => panic!("{:?} with id {:?} is not an input node", node, inp),
+        }
     }
 
     fn update_data_value(&mut self, id: NodeId, v: f64) {
@@ -152,20 +149,14 @@ impl RunnableGraph {
         }
     }
 
-    fn get_node_value(&mut self, id: NodeRef) -> f64 {
-        match id {
-            NodeRef::InputNode(id) => match self.inputs.get(&id) {
-                None => panic!("Failed to fetch input node with id {:?}", id),
-                Some(v) => *v,
-            },
-            NodeRef::OpNode(id) => match self.nodes.get(&id) {
-                None => panic!("Failed to fetch operation node with id {:?}", id),
-                Some(n) => {
-                    let value = self.get_value_for_node(&n.clone());
-                    self.update_data_value(id, value);
-                    value
-                }
-            },
+    fn get_node_value(&mut self, id: NodeId) -> f64 {
+        match self.nodes.get(&id) {
+            None => panic!("Failed to fetch operation node with id {:?}", id),
+            Some(n) => {
+                let value = self.get_value_for_node(&n.clone());
+                self.update_data_value(id, value);
+                value
+            }
         }
     }
 
@@ -204,6 +195,7 @@ impl RunnableGraph {
 
                 value
             }
+            Node::Input(n) => self.data.get(&n.id).unwrap().value,
         }
     }
 
@@ -219,29 +211,19 @@ impl RunnableGraph {
         self.data_for_id(id).gradient
     }
 
-    fn value_for_id(&self, id: NodeRef) -> f64 {
-        match id {
-            NodeRef::InputNode(n) => {
-                let v = self.inputs.get(&n).unwrap();
-                *v
-            }
-            NodeRef::OpNode(n) => self.data_for_id(n).value,
-        }
+    fn value_for_id(&self, id: NodeId) -> f64 {
+        self.data_for_id(id).value
     }
 
     fn update(
         &mut self,
-        id: NodeRef,
+        id: NodeId,
         operation: Operation,
         root_value: f64,
         root_grad: f64,
         other_value: f64,
     ) {
         {
-            if id.as_op_node_id().is_none() {
-                return;
-            }
-
             let data = self.data_for_id_mut(id.into());
             match operation {
                 Operation::Add => {
@@ -258,13 +240,8 @@ impl RunnableGraph {
         }
     }
 
-    fn _backwards(&mut self, id: NodeRef) {
+    fn _backwards(&mut self, id: NodeId) {
         let root_value = self.value_for_id(id);
-
-        let id = match id {
-            NodeRef::OpNode(id) => id,
-            _ => return,
-        };
 
         let root_grad = self.grad_for_id(id);
 
@@ -334,14 +311,10 @@ impl<'a> GraphBuilder<'a> {
         let id = left.ids.borrow_mut().get_id();
         nodes.insert(id, Node::Operation(new_root));
 
-        let mut inputs = left.inputs.clone();
-        inputs.extend(right.inputs.clone());
-
         GraphBuilder {
-            root: NodeRef::OpNode(id),
+            root: id,
             nodes,
             ids: left.ids,
-            inputs,
         }
     }
 
@@ -351,46 +324,42 @@ impl<'a> GraphBuilder<'a> {
 
     pub fn new(ids: Rc<RefCell<&'a mut IdGenerator>>) -> GraphBuilder<'a> {
         GraphBuilder {
-            root: NodeRef::OpNode(NodeId(0)),
+            root: NodeId(0),
             nodes: HashMap::new(),
             ids,
-            inputs: HashMap::new(),
         }
     }
 
     pub fn new_of_immediate(ids: Rc<RefCell<&'a mut IdGenerator>>, val: f64) -> GraphBuilder<'a> {
         let id = ids.borrow_mut().get_id();
         GraphBuilder {
-            root: NodeRef::OpNode(id),
+            root: id,
             nodes: HashMap::from([(id, Node::Immediate(ImmediateNode::new(id, val)))]),
             ids,
-            inputs: HashMap::new(),
         }
     }
 
     pub fn create_immediate(&self, val: f64) -> GraphBuilder<'a> {
         let id = self.ids.borrow_mut().get_id();
         GraphBuilder {
-            root: NodeRef::OpNode(id),
+            root: id,
             nodes: HashMap::from([(id, Node::Immediate(ImmediateNode::new(id, val)))]),
             ids: self.ids.clone(),
-            inputs: HashMap::new(),
         }
     }
 
     pub fn create_input(&self) -> InputNode<'a> {
         let id = self.ids.borrow_mut().get_id();
 
-        let mut inputs = self.inputs.clone();
-        inputs.insert(id, f64::default());
+        let mut nodes = self.nodes.clone();
+        nodes.insert(id, Node::Input(InpNode::new(id)));
 
         InputNode {
             id,
             builder: GraphBuilder {
-                root: NodeRef::InputNode(id),
-                nodes: self.nodes.clone(),
+                root: id,
+                nodes,
                 ids: self.ids.clone(),
-                inputs,
             },
         }
     }
@@ -399,7 +368,6 @@ impl<'a> GraphBuilder<'a> {
         RunnableGraph {
             root: self.root,
             nodes: self.nodes.clone(),
-            inputs: self.inputs.clone(),
             data: HashMap::new(),
         }
     }
@@ -601,6 +569,7 @@ mod tests {
 
         let mut g = builder.make();
 
+        g.set_input(input.id, 0.);
         assert_eq!(g.forward(), 1.);
 
         g.set_input(input.id, 1.);
