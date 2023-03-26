@@ -130,54 +130,47 @@ impl RunnableGraph {
         }
     }
 
-    fn get_node_value(&mut self, id: NodeId) -> f64 {
-        match self.nodes.get(id.0) {
-            None => panic!("Failed to fetch operation node with id {:?}", id),
-            Some(n) => {
-                let value = self.get_value_for_node(&n.clone());
-                self.update_data_value(id, value);
-                value
-            }
-        }
-    }
-
     pub fn forward(&mut self) -> f64 {
-        self.get_node_value(self.root)
-    }
-
-    fn get_value_for_node(&mut self, node: &Node) -> f64 {
-        match node {
-            Node::Operation(n) => {
-                let left_val = self.get_node_value(n.left_id);
-                let right_val = self.get_node_value(n.right_id);
-                match n.operation {
-                    Operation::Mul => left_val * right_val,
-                    Operation::Add => left_val + right_val,
-                    Operation::Sub => left_val - right_val,
-                    Operation::Div => right_val / left_val,
-                    Operation::Pow => right_val.pow(left_val),
-                    Operation::Relu => {
-                        if right_val < 0. {
-                            0.
-                        } else {
-                            right_val
-                        }
+        self.nodes
+            .clone()
+            .iter()
+            .enumerate()
+            .for_each(|(id, node)| {
+                let id = NodeId(id);
+                match node {
+                    Node::Operation(n) => {
+                        let left_val = self.value_for_id(n.left_id);
+                        let right_val = self.value_for_id(n.right_id);
+                        let value = match n.operation {
+                            Operation::Mul => left_val * right_val,
+                            Operation::Add => left_val + right_val,
+                            Operation::Sub => left_val - right_val,
+                            Operation::Div => right_val / left_val,
+                            Operation::Pow => right_val.pow(left_val),
+                            Operation::Relu => {
+                                if right_val < 0. {
+                                    0.
+                                } else {
+                                    right_val
+                                }
+                            }
+                        };
+                        self.update_data_value(id, value);
                     }
+                    Node::Immediate(v) => {
+                        let value = self
+                            .data
+                            .get(v.id.0)
+                            .map(|d| d.value)
+                            .unwrap_or(v.original_value);
+
+                        self.update_data_value(v.id, value);
+                    }
+                    Node::Input(_) => {}
                 }
-            }
-            Node::Immediate(v) => {
-                let value = self
-                    .data
-                    .get(v.id.0)
-                    .map(|d| d.value)
-                    .unwrap_or(v.original_value);
+            });
 
-                self.update_data_value(v.id, value);
-
-                value
-            }
-            Node::Input(n) => self.data.get(n.id.0).unwrap().value,
-        }
+        self.data.get(self.root.0).unwrap().value
     }
 
     fn data_for_id_mut(&mut self, id: NodeId) -> &mut Data {
