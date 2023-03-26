@@ -110,7 +110,6 @@ impl Data {
 
 #[derive(Debug)]
 pub struct RunnableGraph {
-    root: NodeId,
     nodes: Vec<Node>,
     data: Vec<Data>,
 }
@@ -130,7 +129,7 @@ impl RunnableGraph {
         }
     }
 
-    pub fn forward(&mut self) -> f64 {
+    pub fn evaluate(&mut self, outputs: &Vec<NodeId>) -> Vec<f64> {
         self.nodes
             .clone()
             .iter()
@@ -170,7 +169,7 @@ impl RunnableGraph {
                 }
             });
 
-        self.data.get(self.root.0).unwrap().value
+        outputs.iter().map(|id| self.value_for_id(*id)).collect()
     }
 
     fn data_for_id_mut(&mut self, id: NodeId) -> &mut Data {
@@ -221,14 +220,15 @@ impl RunnableGraph {
     }
 
     pub fn backwards(&mut self, out_grad: f64) {
-        let root_value = self.value_for_id(self.root);
+        let root = NodeId(self.nodes.len() - 1);
+        let root_value = self.value_for_id(root);
 
-        let operation = match self.nodes.get(self.root.0).unwrap() {
+        let operation = match self.nodes.get(root.0).unwrap() {
             Node::Operation(n) => n.operation,
             _ => panic!(),
         };
 
-        self.update(self.root, operation, root_value, out_grad, 0.);
+        self.update(root, operation, root_value, out_grad, 0.);
 
         self.nodes
             .clone()
@@ -354,11 +354,7 @@ impl<'a> GraphBuilder<'a> {
             })
             .collect();
 
-        RunnableGraph {
-            root: self.root,
-            nodes,
-            data,
-        }
+        RunnableGraph { nodes, data }
     }
 
     pub fn relu(self) -> GraphBuilder<'a> {
@@ -544,6 +540,8 @@ impl<'a> Mul<f64> for GraphBuilder<'a> {
 
 #[cfg(test)]
 mod tests {
+    use std::vec;
+
     use crate::engine::*;
 
     #[test]
@@ -558,17 +556,19 @@ mod tests {
 
         let mut g = builder.make();
 
+        let outputs = vec![builder.root];
+
         g.set_input(input.id, 0.);
-        assert_eq!(g.forward(), 1.);
+        assert_eq!(g.evaluate(&outputs)[0], 1.);
 
         g.set_input(input.id, 1.);
-        assert_eq!(g.forward(), 2.);
+        assert_eq!(g.evaluate(&outputs)[0], 2.);
 
         let builder = builder * 4.;
         let mut g = builder.make();
 
         g.set_input(input.id, 2.);
-        assert_eq!(g.forward(), 12.);
+        assert_eq!(g.evaluate(&outputs)[0], 12.);
     }
 
     #[test]
@@ -589,11 +589,13 @@ mod tests {
 
         let g = g3 + g4;
 
+        let output = g.root;
+
         let mut g = g.make();
 
         g.set_input(input1.id, 1.5);
         g.set_input(input2.id, 2.5);
-        assert_eq!(g.forward(), 36.625);
+        assert_eq!(g.evaluate(&vec![output])[0], 36.625);
     }
 
     #[test]
@@ -618,12 +620,13 @@ mod tests {
         let f = e.pow(2.);
         let g = &f / 2.0 + 10. / &f;
 
+        let outputs = vec![g.root];
         let mut g = g.make();
 
         g.set_input(a.id, -4.);
         g.set_input(b.id, 2.);
 
-        assert_eq!(g.forward(), 2.4);
+        assert_eq!(g.evaluate(&outputs)[0], 2.4);
     }
 
     #[test]
@@ -640,11 +643,12 @@ mod tests {
         let c = c.relu();
 
         let g = &mut c.make();
+        let outputs = vec![c.root];
 
         g.set_input(a.id, 1.);
         g.set_input(b.id, 2.);
 
-        let v = g.forward();
+        let v = g.evaluate(&outputs)[0];
 
         assert_eq!(v, 6.);
 

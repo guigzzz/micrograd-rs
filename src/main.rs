@@ -24,7 +24,7 @@ fn main() {
         (vec![0., 0.], 0.),
     ];
 
-    let epochs = 5000;
+    let epochs = 25000;
     for i in 0..epochs {
         let mut xy = xy.clone();
         xy.shuffle(&mut thread_rng());
@@ -38,9 +38,9 @@ fn main() {
 
                 let d_loss = y_pred - y;
 
-                mlp.output.zero_grads();
+                mlp.zero_grads();
                 mlp.backward(d_loss);
-                mlp.output.update_weights(0.1);
+                mlp.update_weights(0.1);
 
                 let acc = if (y_pred > 0.5) == (*y > 0.5) {
                     1.0

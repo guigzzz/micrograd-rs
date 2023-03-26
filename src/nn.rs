@@ -50,7 +50,8 @@ impl<'a> Neuron<'a> {
 #[derive(Debug)]
 pub struct MultiLayerPerceptron {
     inputs: Vec<NodeId>,
-    pub output: RunnableGraph,
+    outputs: Vec<NodeId>,
+    graph: RunnableGraph,
 }
 
 impl MultiLayerPerceptron {
@@ -73,7 +74,8 @@ impl MultiLayerPerceptron {
 
         MultiLayerPerceptron {
             inputs: builders.iter().map(|i| i.root.into()).collect(),
-            output: output.make(),
+            outputs: vec![output.root],
+            graph: output.make(),
         }
     }
 
@@ -88,13 +90,21 @@ impl MultiLayerPerceptron {
         self.inputs
             .iter()
             .zip(inputs.iter())
-            .for_each(|(input, value)| self.output.set_input(*input, *value));
+            .for_each(|(input, value)| self.graph.set_input(*input, *value));
 
-        self.output.forward()
+        self.graph.evaluate(&self.outputs)[0]
     }
 
     pub fn backward(&mut self, out_grad: f64) {
-        self.output.backwards(out_grad);
+        self.graph.backwards(out_grad);
+    }
+
+    pub fn zero_grads(&mut self) {
+        self.graph.zero_grads();
+    }
+
+    pub fn update_weights(&mut self, learning_rate: f64) {
+        self.graph.update_weights(learning_rate);
     }
 }
 
@@ -146,9 +156,9 @@ mod tests {
 
                     let d_loss = y_pred - y;
 
-                    mlp.output.zero_grads();
+                    mlp.graph.zero_grads();
                     mlp.backward(d_loss);
-                    mlp.output.update_weights(0.1);
+                    mlp.graph.update_weights(0.1);
 
                     let acc = if (y_pred > 0.5) == (*y > 0.5) {
                         1.0
