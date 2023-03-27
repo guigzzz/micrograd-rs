@@ -70,16 +70,14 @@ impl MultiLayerPerceptron {
             (0..*s).map(|_| Neuron::new(b.clone()).op).collect()
         });
 
-        let output = Neuron::new(outputs).op;
-
         MultiLayerPerceptron {
             inputs: builders.iter().map(|i| i.root.into()).collect(),
-            outputs: vec![output.root],
-            graph: output.make(),
+            outputs: outputs.iter().map(|o| o.root).collect(),
+            graph: RunnableGraph::new(outputs.iter().collect()),
         }
     }
 
-    pub fn forward(&mut self, inputs: &Vec<f64>) -> f64 {
+    pub fn forward(&mut self, inputs: &Vec<f64>) -> Vec<f64> {
         if inputs.len() != self.inputs.len() {
             panic!(
                 "Expected {} inputs, but got {}",
@@ -92,7 +90,7 @@ impl MultiLayerPerceptron {
             .zip(inputs.iter())
             .for_each(|(input, value)| self.graph.set_input(*input, *value));
 
-        self.graph.evaluate(&self.outputs)[0]
+        self.graph.evaluate(&self.outputs)
     }
 
     pub fn backward(&mut self, out_grad: f64) {
@@ -133,7 +131,7 @@ mod tests {
 
     #[test]
     fn test_mlp_xor() {
-        let mut mlp = MultiLayerPerceptron::new(Vec::from([2, 2]));
+        let mut mlp = MultiLayerPerceptron::new(Vec::from([2, 2, 1]));
 
         let xy = &vec![
             (vec![1., 0.], 1.),
@@ -150,7 +148,7 @@ mod tests {
             let (acc, loss): (Vec<f64>, Vec<f64>) = xy
                 .iter()
                 .map(|(x, y)| {
-                    let y_pred = mlp.forward(x);
+                    let y_pred = mlp.forward(x)[0];
 
                     let loss = 0.5 * (y_pred - y).powf(2.);
 
@@ -182,7 +180,7 @@ mod tests {
         let acc = xy
             .iter()
             .map(|(x, y)| {
-                let y_pred = mlp.forward(x);
+                let y_pred = mlp.forward(x)[0];
 
                 let acc = if (y_pred > 0.5) == (*y > 0.5) {
                     1.0

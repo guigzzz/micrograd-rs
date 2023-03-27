@@ -271,6 +271,27 @@ impl RunnableGraph {
             v.value -= learning_rate * v.gradient;
         })
     }
+
+    pub fn new(graphs: Vec<&GraphBuilder>) -> RunnableGraph {
+        let mut nodes: Vec<(NodeId, Node)> = graphs
+            .iter()
+            .flat_map(|g| g.nodes.iter())
+            .map(|(id, node)| (*id, node.clone()))
+            .collect();
+        nodes.sort_by(|a, b| a.0.cmp(&b.0));
+
+        let nodes: Vec<Node> = nodes.iter().map(|(_, node)| node.clone()).collect();
+
+        let data = nodes
+            .iter()
+            .map(|n| match n {
+                Node::Immediate(imm) => Data::new(imm.original_value),
+                _ => Data::new(0.),
+            })
+            .collect();
+
+        RunnableGraph { nodes, data }
+    }
 }
 
 impl<'a> GraphBuilder<'a> {
@@ -338,23 +359,6 @@ impl<'a> GraphBuilder<'a> {
                 ids: self.ids.clone(),
             },
         }
-    }
-
-    pub fn make(&self) -> RunnableGraph {
-        let mut nodes: Vec<(NodeId, Node)> = self.nodes.clone().into_iter().collect();
-        nodes.sort_by(|a, b| a.0.cmp(&b.0));
-
-        let nodes: Vec<Node> = nodes.iter().map(|(_, node)| node.clone()).collect();
-
-        let data = nodes
-            .iter()
-            .map(|n| match n {
-                Node::Immediate(imm) => Data::new(imm.original_value),
-                _ => Data::new(0.),
-            })
-            .collect();
-
-        RunnableGraph { nodes, data }
     }
 
     pub fn relu(self) -> GraphBuilder<'a> {
@@ -554,7 +558,7 @@ mod tests {
 
         let builder = input + 1.;
 
-        let mut g = builder.make();
+        let mut g = RunnableGraph::new(vec![&builder]);
 
         let outputs = vec![builder.root];
 
@@ -565,10 +569,10 @@ mod tests {
         assert_eq!(g.evaluate(&outputs)[0], 2.);
 
         let builder = builder * 4.;
-        let mut g = builder.make();
+        let mut g = RunnableGraph::new(vec![&builder]);
 
         g.set_input(input.id, 2.);
-        assert_eq!(g.evaluate(&outputs)[0], 12.);
+        assert_eq!(g.evaluate(&vec![builder.root])[0], 12.);
     }
 
     #[test]
@@ -591,7 +595,7 @@ mod tests {
 
         let output = g.root;
 
-        let mut g = g.make();
+        let mut g = RunnableGraph::new(vec![&g]);
 
         g.set_input(input1.id, 1.5);
         g.set_input(input2.id, 2.5);
@@ -621,7 +625,7 @@ mod tests {
         let g = &f / 2.0 + 10. / &f;
 
         let outputs = vec![g.root];
-        let mut g = g.make();
+        let mut g = RunnableGraph::new(vec![&g]);
 
         g.set_input(a.id, -4.);
         g.set_input(b.id, 2.);
@@ -642,7 +646,7 @@ mod tests {
 
         let c = c.relu();
 
-        let g = &mut c.make();
+        let g = &mut RunnableGraph::new(vec![&c]);
         let outputs = vec![c.root];
 
         g.set_input(a.id, 1.);

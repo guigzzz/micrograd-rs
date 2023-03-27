@@ -32,7 +32,7 @@ fn main() {
         let (acc, loss): (Vec<f64>, Vec<f64>) = xy
             .iter()
             .map(|(x, y)| {
-                let y_pred = mlp.forward(x);
+                let y_pred = mlp.forward(x)[0];
 
                 let loss = 0.5 * (y_pred - y).powf(2.);
 
@@ -64,7 +64,7 @@ fn main() {
     let acc = xy
         .iter()
         .map(|(x, y)| {
-            let y_pred = mlp.forward(x);
+            let y_pred = mlp.forward(x)[0];
 
             let acc = if (y_pred > 0.5) == (*y > 0.5) {
                 1.0
