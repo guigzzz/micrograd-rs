@@ -133,12 +133,7 @@ impl RunnableGraph {
                         };
                         self.update_data_value(id, value);
                     }
-                    Node::Immediate(v) => {
-                        let value = self.data.get(id.0).map(|d| d.value).unwrap_or(*v);
-
-                        self.update_data_value(id, value);
-                    }
-                    Node::Input => {}
+                    _ => {}
                 }
             });
 
