@@ -40,33 +40,10 @@ impl<'a> Into<GraphBuilder<'a>> for InputNode<'a> {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct ImmediateNode {
-    id: NodeId,
-    original_value: f64,
-}
-
-impl ImmediateNode {
-    pub fn new(id: NodeId, original_value: f64) -> ImmediateNode {
-        ImmediateNode { id, original_value }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct InpNode {
-    id: NodeId,
-}
-
-impl InpNode {
-    fn new(id: NodeId) -> InpNode {
-        InpNode { id }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
 pub enum Node {
     Operation(GraphBuilderNode),
-    Immediate(ImmediateNode),
-    Input(InpNode),
+    Immediate(f64),
+    Input,
 }
 
 #[derive(Debug)]
@@ -110,7 +87,7 @@ impl Data {
 
 #[derive(Debug)]
 pub struct RunnableGraph {
-    nodes: Vec<Node>,
+    nodes: Vec<(NodeId, Node)>,
     data: Vec<Data>,
 }
 
@@ -134,7 +111,7 @@ impl RunnableGraph {
             .clone()
             .iter()
             .enumerate()
-            .for_each(|(id, node)| {
+            .for_each(|(id, (_, node))| {
                 let id = NodeId(id);
                 match node {
                     Node::Operation(n) => {
@@ -157,15 +134,11 @@ impl RunnableGraph {
                         self.update_data_value(id, value);
                     }
                     Node::Immediate(v) => {
-                        let value = self
-                            .data
-                            .get(v.id.0)
-                            .map(|d| d.value)
-                            .unwrap_or(v.original_value);
+                        let value = self.data.get(id.0).map(|d| d.value).unwrap_or(*v);
 
-                        self.update_data_value(v.id, value);
+                        self.update_data_value(id, value);
                     }
-                    Node::Input(_) => {}
+                    Node::Input => {}
                 }
             });
 
@@ -223,9 +196,9 @@ impl RunnableGraph {
         out_grads.iter().for_each(|(root, out_grad)| {
             let root_value = self.value_for_id(*root);
 
-            let operation = match self.nodes.get(root.0).unwrap() {
+            let operation = match self.nodes.get(root.0).unwrap().1 {
                 Node::Operation(n) => n.operation,
-                _ => panic!(),
+                n => panic!("This is not an Operation node: {:?} {:?}", root, n),
             };
 
             self.update(*root, operation, root_value, *out_grad, 0.);
@@ -236,7 +209,7 @@ impl RunnableGraph {
             .iter()
             .enumerate()
             .rev()
-            .for_each(|(id, node)| {
+            .for_each(|(id, (_, node))| {
                 let id = NodeId(id);
 
                 let node = match node {
@@ -281,12 +254,12 @@ impl RunnableGraph {
             .collect();
         nodes.sort_by(|a, b| a.0.cmp(&b.0));
 
-        let nodes: Vec<Node> = nodes.iter().map(|(_, node)| node.clone()).collect();
+        nodes.dedup_by(|a, b| a.0 == b.0);
 
         let data = nodes
             .iter()
-            .map(|n| match n {
-                Node::Immediate(imm) => Data::new(imm.original_value),
+            .map(|(_, n)| match n {
+                Node::Immediate(imm) => Data::new(*imm),
                 _ => Data::new(0.),
             })
             .collect();
@@ -332,7 +305,7 @@ impl<'a> GraphBuilder<'a> {
         let id = ids.borrow_mut().get_id();
         GraphBuilder {
             root: id,
-            nodes: HashMap::from([(id, Node::Immediate(ImmediateNode::new(id, val)))]),
+            nodes: HashMap::from([(id, Node::Immediate(val))]),
             ids,
         }
     }
@@ -341,7 +314,7 @@ impl<'a> GraphBuilder<'a> {
         let id = self.ids.borrow_mut().get_id();
         GraphBuilder {
             root: id,
-            nodes: HashMap::from([(id, Node::Immediate(ImmediateNode::new(id, val)))]),
+            nodes: HashMap::from([(id, Node::Immediate(val))]),
             ids: self.ids.clone(),
         }
     }
@@ -350,7 +323,7 @@ impl<'a> GraphBuilder<'a> {
         let id = self.ids.borrow_mut().get_id();
 
         let mut nodes = self.nodes.clone();
-        nodes.insert(id, Node::Input(InpNode::new(id)));
+        nodes.insert(id, Node::Input);
 
         InputNode {
             id,
@@ -658,5 +631,40 @@ mod tests {
         assert_eq!(v, 6.);
 
         g.backwards(vec![(c.root, 1.)]);
+    }
+
+    #[test]
+    fn test_multiple_outputs() {
+        let ids = &mut IdGenerator::new();
+        let ids = Rc::new(RefCell::new(ids));
+
+        let graph = GraphBuilder::new(ids.clone());
+        let a = &graph.create_input();
+        let b = &graph.create_input();
+
+        let c = (a + b) * 2.;
+        let c = c.relu();
+
+        let graph = GraphBuilder::new(ids.clone());
+        let d = &graph.create_input();
+        let e = &graph.create_input();
+
+        let f = (d + e) * 2. + a;
+
+        let g = &mut RunnableGraph::new(vec![&c, &f]);
+
+        let outputs = vec![c.root, f.root];
+
+        g.set_input(a.id, 1.);
+        g.set_input(b.id, 2.);
+
+        g.set_input(d.id, 3.);
+        g.set_input(e.id, 4.);
+
+        let v = g.evaluate(&outputs);
+
+        assert_eq!(v, vec![6., 15.]);
+
+        g.backwards(vec![(c.root, 1.), (f.root, 2.)]);
     }
 }

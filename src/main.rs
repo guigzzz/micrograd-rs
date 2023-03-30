@@ -16,7 +16,7 @@ fn main() {
         .build()
         .unwrap();
 
-    let mut mlp = MultiLayerPerceptron::new(Vec::from([2, 2]));
+    let mut mlp = MultiLayerPerceptron::new(Vec::from([2, 2, 2]));
 
     let xy = &vec![
         (vec![1., 0.], vec![1.]),

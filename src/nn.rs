@@ -1,10 +1,9 @@
-use std::{cell::RefCell, cmp::min_by, collections::binary_heap::Iter, rc::Rc};
+use std::{cell::RefCell, cmp::min_by, rc::Rc};
 
 use rand::Rng;
 use std::cmp::max_by;
 
 use crate::engine::{GraphBuilder, IdGenerator, InputNode, NodeId, RunnableGraph};
-use crate::util::Util;
 
 pub struct Neuron<'a> {
     op: GraphBuilder<'a>,
@@ -118,18 +117,22 @@ mod tests {
 
     use rand::{seq::SliceRandom, thread_rng};
 
-    use crate::{nn::*, util::Mean};
+    use crate::{
+        nn::*,
+        util::{Mean, Util},
+    };
 
     #[test]
     fn test_mlp_xor() {
-        let mut mlp = MultiLayerPerceptron::new(Vec::from([2, 2, 1]));
-
         let xy = &vec![
             (vec![1., 0.], vec![0., 1.]),
             (vec![0., 1.], vec![0., 1.]),
             (vec![1., 1.], vec![1., 0.]),
             (vec![0., 0.], vec![1., 0.]),
         ];
+
+        let mut mlp =
+            MultiLayerPerceptron::new(Vec::from([xy[0].0.len() as u32, 2, xy[0].1.len() as u32]));
 
         let epochs = 1000;
         for i in 0..epochs {
@@ -180,8 +183,7 @@ mod tests {
             .iter()
             .map(|(x, y)| {
                 let y_preds = mlp.forward(x);
-
-                let acc = if (y_preds[0] > 0.5) == (y[0] > 0.5) {
+                let acc = if Util::argmax(&y_preds) == Util::argmax(&y) {
                     1.0
                 } else {
                     0.0
