@@ -19,10 +19,10 @@ fn main() {
     let mut mlp = MultiLayerPerceptron::new(Vec::from([2, 2, 2]));
 
     let xy = &vec![
-        (vec![1., 0.], vec![1.]),
-        (vec![0., 1.], vec![1.]),
-        (vec![1., 1.], vec![0.]),
-        (vec![0., 0.], vec![0.]),
+        (vec![1., 0.], vec![0., 1.]),
+        (vec![0., 1.], vec![0., 1.]),
+        (vec![1., 1.], vec![1., 0.]),
+        (vec![0., 0.], vec![1., 0.]),
     ];
 
     let epochs = 25000;
@@ -38,13 +38,13 @@ fn main() {
                 let loss = y
                     .iter()
                     .zip(y_preds.iter())
-                    .map(|(y, y_pred)| (y - y_pred).powf(2.))
+                    .map(|(y, y_pred)| (y_pred - y).powf(2.))
                     .sum::<f64>();
 
                 let grads: Vec<f64> = y
                     .iter()
                     .zip(y_preds.iter())
-                    .map(|(y, y_pred)| (y - y_pred))
+                    .map(|(y, y_pred)| (y_pred - y))
                     .collect();
 
                 mlp.zero_grads();
@@ -75,7 +75,7 @@ fn main() {
         .map(|(x, y)| {
             let y_preds = mlp.forward(x);
 
-            let acc = if (y_preds[0] > 0.5) == (y[0] > 0.5) {
+            let acc = if Util::argmax(&y_preds) == Util::argmax(&y) {
                 1.0
             } else {
                 0.0
