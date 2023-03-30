@@ -219,16 +219,17 @@ impl RunnableGraph {
         })
     }
 
-    pub fn backwards(&mut self, out_grad: f64) {
-        let root = NodeId(self.nodes.len() - 1);
-        let root_value = self.value_for_id(root);
+    pub fn backwards(&mut self, out_grads: Vec<(NodeId, f64)>) {
+        out_grads.iter().for_each(|(root, out_grad)| {
+            let root_value = self.value_for_id(*root);
 
-        let operation = match self.nodes.get(root.0).unwrap() {
-            Node::Operation(n) => n.operation,
-            _ => panic!(),
-        };
+            let operation = match self.nodes.get(root.0).unwrap() {
+                Node::Operation(n) => n.operation,
+                _ => panic!(),
+            };
 
-        self.update(root, operation, root_value, out_grad, 0.);
+            self.update(*root, operation, root_value, *out_grad, 0.);
+        });
 
         self.nodes
             .clone()
@@ -656,6 +657,6 @@ mod tests {
 
         assert_eq!(v, 6.);
 
-        g.backwards(2.);
+        g.backwards(vec![(c.root, 1.)]);
     }
 }
