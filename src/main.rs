@@ -36,15 +36,7 @@ fn main() {
                 let sum_exp = y_preds.iter().map(|y| (y - max).exp()).sum::<f64>();
                 let softmax: Vec<_> = y_preds.iter().map(|y| (y - max).exp() / sum_exp).collect();
 
-                let loss = -softmax
-                    .iter()
-                    .enumerate()
-                    .map(|(i, sm)| {
-                        let y = if (*y as usize) == i { 1. } else { 0. };
-                        y * sm.log10()
-                    })
-                    .sum::<f64>();
-
+                // https://deepnotes.io/softmax-crossentropy
                 let grads: Vec<f64> = softmax
                     .iter()
                     .enumerate()
@@ -63,6 +55,15 @@ fn main() {
                 } else {
                     0.0
                 };
+
+                let loss = -softmax
+                    .iter()
+                    .enumerate()
+                    .map(|(i, sm)| {
+                        let y = if (*y as usize) == i { 1. } else { 0. };
+                        y * sm.log10()
+                    })
+                    .sum::<f64>();
 
                 (acc, loss)
             })
