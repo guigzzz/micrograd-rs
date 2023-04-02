@@ -20,7 +20,7 @@ fn main() {
 
     let mnist = Mnist::from_parquet(Path::new("mnist.parquet"));
 
-    let mut mlp = MultiLayerPerceptron::new(Vec::from([mnist.x_dim, 32, mnist.y_dim]));
+    let mut mlp = MultiLayerPerceptron::new(vec![mnist.x_dim, 32, mnist.y_dim]);
 
     let epochs = 100;
     for i in 0..epochs {

@@ -1,7 +1,6 @@
-use std::{cell::RefCell, cmp::min_by, rc::Rc};
+use std::{cell::RefCell, rc::Rc};
 
 use rand::Rng;
-use std::cmp::max_by;
 
 use crate::engine::{GraphBuilder, IdGenerator, InputNode, NodeId, RunnableGraph};
 
@@ -10,14 +9,6 @@ pub struct Neuron<'a> {
 }
 
 impl<'a> Neuron<'a> {
-    fn max(left: f64, right: f64) -> f64 {
-        max_by(left, right, |l, r| l.partial_cmp(r).unwrap())
-    }
-
-    fn min(left: f64, right: f64) -> f64 {
-        min_by(left, right, |l, r| l.partial_cmp(r).unwrap())
-    }
-
     fn new(inputs: Vec<GraphBuilder<'a>>, non_linearity: bool) -> Neuron<'a> {
         let factory = inputs.first().unwrap();
 
@@ -25,10 +16,7 @@ impl<'a> Neuron<'a> {
 
         let weights: Vec<GraphBuilder> = inputs
             .iter()
-            .map(|i| {
-                let v = Self::max(Self::min(rng.gen(), 1.), -1.);
-                &factory.create_immediate(v) * i
-            })
+            .map(|i| &factory.create_immediate(rng.gen_range(-1.0..1.)) * i)
             .collect();
 
         let mut first = weights[0].clone();
@@ -38,8 +26,7 @@ impl<'a> Neuron<'a> {
             first = first + g.clone();
         }
 
-        let v = Self::max(Self::min(rng.gen(), 1.), -1.);
-        let bias = factory.create_immediate(v);
+        let bias = factory.create_immediate(rng.gen_range(-1.0..1.));
 
         let output_value = first + bias;
         let output_value = if non_linearity {
