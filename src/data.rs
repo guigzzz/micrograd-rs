@@ -1,7 +1,6 @@
 use parquet::file::reader::{FileReader, SerializedFileReader};
 use parquet::record::Field;
 use std::collections::HashSet;
-use std::iter::Zip;
 use std::{fs::File, path::Path};
 
 pub struct Mnist {
@@ -10,15 +9,6 @@ pub struct Mnist {
     pub x_dim: usize,
     pub y_dim: usize,
 }
-
-// impl IntoIterator for Mnist {
-//     type Item = (Vec<f64>, u32);
-//     type IntoIter = Zip<std::vec::IntoIter<Vec<f64>>, std::vec::IntoIter<u32>>;
-
-//     fn into_iter(self) -> Self::IntoIter {
-//         self.images.into_iter().zip(self.labels.into_iter())
-//     }
-// }
 
 impl Mnist {
     pub fn from_parquet(path: &Path) -> Mnist {

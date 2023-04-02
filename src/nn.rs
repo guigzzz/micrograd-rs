@@ -18,7 +18,7 @@ impl<'a> Neuron<'a> {
         min_by(left, right, |l, r| l.partial_cmp(r).unwrap())
     }
 
-    fn new(inputs: Vec<GraphBuilder<'a>>) -> Neuron<'a> {
+    fn new(inputs: Vec<GraphBuilder<'a>>, non_linearity: bool) -> Neuron<'a> {
         let factory = inputs.first().unwrap();
 
         let mut rng = rand::thread_rng();
@@ -41,9 +41,14 @@ impl<'a> Neuron<'a> {
         let v = Self::max(Self::min(rng.gen(), 1.), -1.);
         let bias = factory.create_immediate(v);
 
-        Neuron {
-            op: (first + bias).relu(),
-        }
+        let output_value = first + bias;
+        let output_value = if non_linearity {
+            output_value.relu()
+        } else {
+            output_value
+        };
+
+        Neuron { op: output_value }
     }
 }
 
@@ -55,7 +60,7 @@ pub struct MultiLayerPerceptron {
 }
 
 impl MultiLayerPerceptron {
-    pub fn new(sizes: Vec<u32>) -> MultiLayerPerceptron {
+    pub fn new(sizes: Vec<usize>) -> MultiLayerPerceptron {
         let ids = &mut IdGenerator::new();
         let ids = Rc::new(RefCell::new(ids));
 
@@ -66,9 +71,16 @@ impl MultiLayerPerceptron {
 
         let builders: Vec<GraphBuilder> = inputs.into_iter().map(|i| i.into()).collect();
 
-        let outputs = sizes.iter().skip(1).fold(builders.clone(), |b, s| {
-            (0..*s).map(|_| Neuron::new(b.clone()).op).collect()
-        });
+        let outputs = sizes
+            .iter()
+            .enumerate()
+            .skip(1)
+            .fold(builders.clone(), |b, (i, s)| {
+                let non_linearity = i != sizes.len() - 1;
+                (0..*s)
+                    .map(|_| Neuron::new(b.clone(), non_linearity).op)
+                    .collect()
+            });
 
         MultiLayerPerceptron {
             inputs: builders.iter().map(|i| i.root.into()).collect(),
@@ -131,8 +143,7 @@ mod tests {
             (vec![0., 0.], vec![1., 0.]),
         ];
 
-        let mut mlp =
-            MultiLayerPerceptron::new(Vec::from([xy[0].0.len() as u32, 2, xy[0].1.len() as u32]));
+        let mut mlp = MultiLayerPerceptron::new(Vec::from([xy[0].0.len(), 2, xy[0].1.len()]));
 
         let epochs = 1000;
         for i in 0..epochs {
