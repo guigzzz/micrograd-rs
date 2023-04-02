@@ -22,7 +22,7 @@ fn main() {
 
     let mut mlp = MultiLayerPerceptron::new(Vec::from([mnist.x_dim, 32, mnist.y_dim]));
 
-    let epochs = 1000;
+    let epochs = 100;
     for i in 0..epochs {
         let mut xy = mnist.as_xy().clone();
         xy.shuffle(&mut thread_rng());
@@ -48,7 +48,7 @@ fn main() {
 
                 mlp.zero_grads();
                 mlp.backward(grads);
-                mlp.update_weights(0.01);
+                mlp.update_weights(0.001);
 
                 let acc = if Util::argmax(&y_preds) == *y as usize {
                     1.0
