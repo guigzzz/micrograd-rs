@@ -1,10 +1,12 @@
-use std::fs::File;
+use std::{fs::File, path::Path};
 
 use nn::MultiLayerPerceptron;
 use rand::{seq::SliceRandom, thread_rng};
 
 use crate::util::{Mean, Util};
+use data::Mnist;
 
+mod data;
 mod engine;
 mod nn;
 mod util;
@@ -16,18 +18,13 @@ fn main() {
         .build()
         .unwrap();
 
-    let mut mlp = MultiLayerPerceptron::new(Vec::from([2, 2, 2]));
+    let mnist = Mnist::from_parquet(Path::new("mnist.parquet"));
 
-    let xy = &vec![
-        (vec![1., 0.], vec![0., 1.]),
-        (vec![0., 1.], vec![0., 1.]),
-        (vec![1., 1.], vec![1., 0.]),
-        (vec![0., 0.], vec![1., 0.]),
-    ];
+    let mut mlp = MultiLayerPerceptron::new(Vec::from([mnist.x_dim, 32, mnist.y_dim]));
 
-    let epochs = 25000;
+    let epochs = 1000;
     for i in 0..epochs {
-        let mut xy = xy.clone();
+        let mut xy = mnist.as_xy().clone();
         xy.shuffle(&mut thread_rng());
 
         let (acc, loss): (Vec<f64>, Vec<f64>) = xy
@@ -35,23 +32,33 @@ fn main() {
             .map(|(x, y)| {
                 let y_preds = mlp.forward(x);
 
-                let loss = y
+                let max = y_preds.iter().max_by(|l, r| l.total_cmp(r)).unwrap();
+                let sum_exp = y_preds.iter().map(|y| (y - max).exp()).sum::<f64>();
+                let softmax: Vec<_> = y_preds.iter().map(|y| (y - max).exp() / sum_exp).collect();
+
+                let loss = -softmax
                     .iter()
-                    .zip(y_preds.iter())
-                    .map(|(y, y_pred)| (y_pred - y).powf(2.))
+                    .enumerate()
+                    .map(|(i, sm)| {
+                        let y = if (*y as usize) == i { 1. } else { 0. };
+                        y * sm.log10()
+                    })
                     .sum::<f64>();
 
-                let grads: Vec<f64> = y
+                let grads: Vec<f64> = softmax
                     .iter()
-                    .zip(y_preds.iter())
-                    .map(|(y, y_pred)| (y_pred - y))
+                    .enumerate()
+                    .map(|(i, y_pred)| {
+                        let y = if (*y as usize) == i { 1. } else { 0. };
+                        y_pred - y
+                    })
                     .collect();
 
                 mlp.zero_grads();
                 mlp.backward(grads);
-                mlp.update_weights(0.1);
+                mlp.update_weights(0.01);
 
-                let acc = if Util::argmax(&y_preds) == Util::argmax(&y) {
+                let acc = if Util::argmax(&y_preds) == *y as usize {
                     1.0
                 } else {
                     0.0
@@ -61,7 +68,7 @@ fn main() {
             })
             .unzip();
 
-        if i % 100 == 0 {
+        if i % 10 == 0 {
             println!(
                 "Epoch {i} - Acc={:?}, Loss={:?}",
                 acc.iter().mean(),
@@ -69,23 +76,6 @@ fn main() {
             );
         }
     }
-
-    let acc = xy
-        .iter()
-        .map(|(x, y)| {
-            let y_preds = mlp.forward(x);
-
-            let acc = if Util::argmax(&y_preds) == Util::argmax(&y) {
-                1.0
-            } else {
-                0.0
-            };
-
-            acc
-        })
-        .mean();
-
-    println!("{:?}", acc);
 
     if let Ok(report) = guard.report().build() {
         let file = File::create("flamegraph.svg").unwrap();
