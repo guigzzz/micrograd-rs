@@ -7,6 +7,8 @@ use std::{
 
 use num::traits::Pow;
 
+use crate::optimiser::Optimiser;
+
 #[derive(Debug, Clone, Copy)]
 pub enum Operation {
     Mul,
@@ -235,10 +237,8 @@ impl RunnableGraph {
             })
     }
 
-    pub fn update_weights(&mut self, learning_rate: f64) {
-        self.data.iter_mut().for_each(|v| {
-            v.value -= learning_rate * v.gradient;
-        })
+    pub fn update_weights(&mut self, optimiser: &mut impl Optimiser) {
+        optimiser.optimise(&mut self.data);
     }
 
     pub fn new(graphs: Vec<&GraphBuilder>) -> RunnableGraph {
@@ -260,6 +260,10 @@ impl RunnableGraph {
             .collect();
 
         RunnableGraph { nodes, data }
+    }
+
+    pub fn num_parameters(&self) -> usize {
+        self.data.len()
     }
 }
 

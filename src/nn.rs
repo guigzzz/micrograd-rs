@@ -2,7 +2,10 @@ use std::{cell::RefCell, rc::Rc};
 
 use rand::Rng;
 
-use crate::engine::{GraphBuilder, IdGenerator, InputNode, NodeId, RunnableGraph};
+use crate::{
+    engine::{GraphBuilder, IdGenerator, InputNode, NodeId, RunnableGraph},
+    optimiser::Optimiser,
+};
 
 pub struct Neuron<'a> {
     op: GraphBuilder<'a>,
@@ -106,8 +109,12 @@ impl MultiLayerPerceptron {
         self.graph.zero_grads();
     }
 
-    pub fn update_weights(&mut self, learning_rate: f64) {
-        self.graph.update_weights(learning_rate);
+    pub fn update_weights(&mut self, optimiser: &mut impl Optimiser) {
+        self.graph.update_weights(optimiser);
+    }
+
+    pub fn num_parameters(&self) -> usize {
+        self.graph.num_parameters()
     }
 }
 
@@ -118,6 +125,7 @@ mod tests {
 
     use crate::{
         nn::*,
+        optimiser::LearningRateOptimiser,
         util::{Mean, Util},
     };
 
@@ -131,6 +139,8 @@ mod tests {
         ];
 
         let mut mlp = MultiLayerPerceptron::new(Vec::from([xy[0].0.len(), 2, xy[0].1.len()]));
+
+        let optimiser = &mut LearningRateOptimiser::new(0.1);
 
         let epochs = 1000;
         for i in 0..epochs {
@@ -156,7 +166,7 @@ mod tests {
 
                     mlp.zero_grads();
                     mlp.backward(grads);
-                    mlp.update_weights(0.1);
+                    mlp.update_weights(optimiser);
 
                     let acc = if Util::argmax(&y_preds) == Util::argmax(&y) {
                         1.0

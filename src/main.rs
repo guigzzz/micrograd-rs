@@ -1,6 +1,7 @@
 use std::{fs::File, path::Path};
 
 use nn::MultiLayerPerceptron;
+use optimiser::{AdamOptimiser, LearningRateOptimiser};
 use rand::{seq::SliceRandom, thread_rng};
 
 use crate::util::{Mean, Util};
@@ -9,6 +10,7 @@ use data::Mnist;
 mod data;
 mod engine;
 mod nn;
+mod optimiser;
 mod util;
 
 fn main() {
@@ -21,6 +23,9 @@ fn main() {
     let mnist = Mnist::from_parquet(Path::new("mnist.parquet"));
 
     let mut mlp = MultiLayerPerceptron::new(vec![mnist.x_dim, mnist.y_dim]);
+
+    // let optimiser = &mut LearningRateOptimiser::new(0.004);
+    let optimiser = &mut AdamOptimiser::new(mlp.num_parameters());
 
     let epochs = 100;
     for i in 0..epochs {
@@ -48,7 +53,7 @@ fn main() {
 
                 mlp.zero_grads();
                 mlp.backward(grads);
-                mlp.update_weights(0.001);
+                mlp.update_weights(optimiser);
 
                 let acc = if Util::argmax(&y_preds) == *y as usize {
                     1.0
