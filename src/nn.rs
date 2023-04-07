@@ -165,7 +165,7 @@ mod tests {
                     mlp.backward(grads);
                     mlp.update_weights(optimiser);
 
-                    let acc = if Util::argmax(&y_preds) == Util::argmax(&y) {
+                    let acc = if Util::argmax(&y_preds) == Util::argmax(y) {
                         1.0
                     } else {
                         0.0
@@ -188,13 +188,11 @@ mod tests {
             .iter()
             .map(|(x, y)| {
                 let y_preds = mlp.forward(x);
-                let acc = if Util::argmax(&y_preds) == Util::argmax(&y) {
+                if Util::argmax(&y_preds) == Util::argmax(y) {
                     1.0
                 } else {
                     0.0
-                };
-
-                acc
+                }
             })
             .mean();
 

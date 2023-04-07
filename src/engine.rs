@@ -90,40 +90,37 @@ impl RunnableGraph {
     fn update_data_value(&mut self, id: NodeId, v: f64) {
         match self.data.get_mut(id.0) {
             None => {
-                let _ = self.data.insert(id.0, Data::new(v));
+                self.data.insert(id.0, Data::new(v));
             }
-            Some(d) => (*d).value = v,
+            Some(d) => d.value = v,
         }
     }
 
-    pub fn evaluate(&mut self, outputs: &Vec<NodeId>) -> Vec<f64> {
+    pub fn evaluate(&mut self, outputs: &[NodeId]) -> Vec<f64> {
         self.nodes
             .clone()
             .iter()
             .enumerate()
             .for_each(|(id, (_, node))| {
                 let id = NodeId(id);
-                match node {
-                    Node::Operation(n) => {
-                        let left_val = self.value_for_id(n.left_id);
-                        let right_val = self.value_for_id(n.right_id);
-                        let value = match n.operation {
-                            Operation::Mul => left_val * right_val,
-                            Operation::Add => left_val + right_val,
-                            Operation::Sub => left_val - right_val,
-                            Operation::Div => right_val / left_val,
-                            Operation::Pow => right_val.pow(left_val),
-                            Operation::Relu => {
-                                if right_val < 0. {
-                                    0.
-                                } else {
-                                    right_val
-                                }
+                if let Node::Operation(n) = node {
+                    let left_val = self.value_for_id(n.left_id);
+                    let right_val = self.value_for_id(n.right_id);
+                    let value = match n.operation {
+                        Operation::Mul => left_val * right_val,
+                        Operation::Add => left_val + right_val,
+                        Operation::Sub => left_val - right_val,
+                        Operation::Div => right_val / left_val,
+                        Operation::Pow => right_val.pow(left_val),
+                        Operation::Relu => {
+                            if right_val < 0. {
+                                0.
+                            } else {
+                                right_val
                             }
-                        };
-                        self.update_data_value(id, value);
-                    }
-                    _ => {}
+                        }
+                    };
+                    self.update_data_value(id, value);
                 }
             });
 
@@ -155,7 +152,7 @@ impl RunnableGraph {
         other_value: f64,
     ) {
         {
-            let data = self.data_for_id_mut(id.into());
+            let data = self.data_for_id_mut(id);
             match operation {
                 Operation::Add => {
                     data.gradient += root_grad;
@@ -205,7 +202,7 @@ impl RunnableGraph {
                 let root_value = self.value_for_id(id);
                 let root_grad = self.grad_for_id(id);
 
-                let right_value = self.value_for_id(node.right_id.into());
+                let right_value = self.value_for_id(node.right_id);
                 self.update(
                     node.left_id,
                     node.operation,
@@ -214,7 +211,7 @@ impl RunnableGraph {
                     right_value,
                 );
 
-                let left_value = self.value_for_id(node.left_id.into());
+                let left_value = self.value_for_id(node.left_id);
                 self.update(
                     node.right_id,
                     node.operation,
@@ -233,7 +230,7 @@ impl RunnableGraph {
         let mut nodes: Vec<(NodeId, Node)> = graphs
             .iter()
             .flat_map(|g| g.nodes.iter())
-            .map(|(id, node)| (*id, node.clone()))
+            .map(|(id, node)| (*id, *node))
             .collect();
         nodes.sort_by(|a, b| a.0.cmp(&b.0));
 
@@ -264,7 +261,7 @@ impl<'a> GraphBuilder<'a> {
         };
 
         let mut nodes = left.nodes.clone();
-        nodes.extend(right.nodes.clone());
+        nodes.extend(right.nodes);
 
         let id = left.ids.borrow_mut().get_id();
         nodes.insert(id, Node::Operation(new_root));
@@ -418,7 +415,7 @@ impl<'a> Mul<&GraphBuilder<'a>> for f64 {
     type Output = GraphBuilder<'a>;
 
     fn mul(self, rhs: &GraphBuilder<'a>) -> Self::Output {
-        GraphBuilder::with_immediate(Operation::Mul, self.clone(), rhs.clone())
+        GraphBuilder::with_immediate(Operation::Mul, self, rhs.clone())
     }
 }
 
@@ -492,7 +489,7 @@ mod tests {
         let mut g = RunnableGraph::new(vec![&builder]);
 
         g.set_input(*input_id, 2.);
-        assert_eq!(g.evaluate(&vec![builder.root])[0], 12.);
+        assert_eq!(g.evaluate(&[builder.root])[0], 12.);
     }
 
     #[test]
@@ -519,7 +516,7 @@ mod tests {
 
         g.set_input(*input_id1, 1.5);
         g.set_input(*input_id2, 2.5);
-        assert_eq!(g.evaluate(&vec![output])[0], 36.625);
+        assert_eq!(g.evaluate(&[output])[0], 36.625);
     }
 
     #[test]

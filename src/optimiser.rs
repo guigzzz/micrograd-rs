@@ -34,7 +34,7 @@ impl Optimiser for AdamOptimiser {
             .zip(self.v.iter_mut())
             .zip(data.iter_mut())
             .for_each(|((m, v), d)| {
-                let grad: f64 = (*d).gradient;
+                let grad: f64 = d.gradient;
 
                 *m = Self::BETA_1 * *m + (1. - Self::BETA_1) * grad;
                 *v = Self::BETA_2 * *v + (1. - Self::BETA_2) * grad.powf(2.);

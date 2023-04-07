@@ -1,7 +1,7 @@
 pub struct Util {}
 
 impl Util {
-    pub fn argmax(v: &Vec<f64>) -> usize {
+    pub fn argmax(v: &[f64]) -> usize {
         let (max, _) = v
             .iter()
             .cloned()
