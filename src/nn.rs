@@ -3,7 +3,7 @@ use std::{cell::RefCell, rc::Rc};
 use rand::Rng;
 
 use crate::{
-    engine::{GraphBuilder, IdGenerator, InputNode, NodeId, RunnableGraph},
+    engine::{GraphBuilder, IdGenerator, NodeId, RunnableGraph},
     optimiser::Optimiser,
 };
 
@@ -13,14 +13,10 @@ pub struct Neuron<'a> {
 
 impl<'a> Neuron<'a> {
     fn new(inputs: Vec<GraphBuilder<'a>>, non_linearity: bool) -> Neuron<'a> {
-        let factory = inputs.first().unwrap();
-
         let mut rng = rand::thread_rng();
 
-        let weights: Vec<GraphBuilder> = inputs
-            .iter()
-            .map(|i| &factory.create_immediate(rng.gen_range(-1.0..1.)) * i)
-            .collect();
+        let weights: Vec<GraphBuilder> =
+            inputs.iter().map(|i| rng.gen_range(-1.0..1.) * i).collect();
 
         let mut first = weights[0].clone();
         let tail = &weights[1..];
@@ -29,9 +25,7 @@ impl<'a> Neuron<'a> {
             first = first + g.clone();
         }
 
-        let bias = factory.create_immediate(rng.gen_range(-1.0..1.));
-
-        let output_value = first + bias;
+        let output_value = first + rng.gen_range(-1.0..1.);
         let output_value = if non_linearity {
             output_value.relu()
         } else {
@@ -57,9 +51,12 @@ impl MultiLayerPerceptron {
         let graph = GraphBuilder::new(ids);
 
         let num_inputs = sizes[0];
-        let inputs: Vec<InputNode> = (0..num_inputs).map(|_| graph.create_input()).collect();
-
-        let builders: Vec<GraphBuilder> = inputs.into_iter().map(|i| i.into()).collect();
+        let builders: Vec<GraphBuilder> = (0..num_inputs)
+            .map(|_| {
+                let (_, g) = graph.create_input();
+                g
+            })
+            .collect();
 
         let outputs = sizes
             .iter()
@@ -73,7 +70,7 @@ impl MultiLayerPerceptron {
             });
 
         MultiLayerPerceptron {
-            inputs: builders.iter().map(|i| i.root.into()).collect(),
+            inputs: builders.iter().map(|i| i.root).collect(),
             outputs: outputs.iter().map(|o| o.root).collect(),
             graph: RunnableGraph::new(outputs.iter().collect()),
         }

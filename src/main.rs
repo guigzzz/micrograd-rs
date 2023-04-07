@@ -29,7 +29,7 @@ fn main() {
 
     let epochs = 100;
     for i in 0..epochs {
-        let mut xy = mnist.as_xy().clone();
+        let mut xy = mnist.as_xy();
         xy.shuffle(&mut thread_rng());
 
         let (acc, loss): (Vec<f64>, Vec<f64>) = xy

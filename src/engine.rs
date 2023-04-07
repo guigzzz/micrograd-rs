@@ -29,18 +29,6 @@ pub struct GraphBuilderNode {
     right_id: NodeId,
 }
 
-#[derive(Debug, Clone)]
-pub struct InputNode<'a> {
-    id: NodeId,
-    builder: GraphBuilder<'a>,
-}
-
-impl<'a> Into<GraphBuilder<'a>> for InputNode<'a> {
-    fn into(self) -> GraphBuilder<'a> {
-        self.builder
-    }
-}
-
 #[derive(Debug, Clone, Copy)]
 pub enum Node {
     Operation(GraphBuilderNode),
@@ -300,7 +288,7 @@ impl<'a> GraphBuilder<'a> {
         }
     }
 
-    pub fn new_of_immediate(ids: Rc<RefCell<&'a mut IdGenerator>>, val: f64) -> GraphBuilder<'a> {
+    fn new_of_immediate(ids: Rc<RefCell<&'a mut IdGenerator>>, val: f64) -> GraphBuilder<'a> {
         let id = ids.borrow_mut().get_id();
         GraphBuilder {
             root: id,
@@ -309,29 +297,20 @@ impl<'a> GraphBuilder<'a> {
         }
     }
 
-    pub fn create_immediate(&self, val: f64) -> GraphBuilder<'a> {
-        let id = self.ids.borrow_mut().get_id();
-        GraphBuilder {
-            root: id,
-            nodes: HashMap::from([(id, Node::Immediate(val))]),
-            ids: self.ids.clone(),
-        }
-    }
-
-    pub fn create_input(&self) -> InputNode<'a> {
+    pub fn create_input(&self) -> (NodeId, GraphBuilder<'a>) {
         let id = self.ids.borrow_mut().get_id();
 
         let mut nodes = self.nodes.clone();
         nodes.insert(id, Node::Input);
 
-        InputNode {
+        (
             id,
-            builder: GraphBuilder {
+            GraphBuilder {
                 root: id,
                 nodes,
                 ids: self.ids.clone(),
             },
-        }
+        )
     }
 
     pub fn relu(self) -> GraphBuilder<'a> {
@@ -355,6 +334,14 @@ impl<'a> Add<&GraphBuilder<'a>> for &GraphBuilder<'a> {
     }
 }
 
+impl<'a> Add<&GraphBuilder<'a>> for GraphBuilder<'a> {
+    type Output = GraphBuilder<'a>;
+
+    fn add(self, rhs: &GraphBuilder<'a>) -> Self::Output {
+        GraphBuilder::combine(Operation::Add, self, rhs.clone())
+    }
+}
+
 impl<'a> Add<f64> for GraphBuilder<'a> {
     type Output = GraphBuilder<'a>;
 
@@ -363,27 +350,11 @@ impl<'a> Add<f64> for GraphBuilder<'a> {
     }
 }
 
-impl<'a> Add<&InputNode<'a>> for GraphBuilder<'a> {
-    type Output = GraphBuilder<'a>;
-
-    fn add(self, rhs: &InputNode<'a>) -> Self::Output {
-        GraphBuilder::combine(Operation::Add, self, rhs.builder.clone())
-    }
-}
-
-impl<'a> Add<f64> for InputNode<'a> {
+impl<'a> Add<f64> for &GraphBuilder<'a> {
     type Output = GraphBuilder<'a>;
 
     fn add(self, rhs: f64) -> Self::Output {
-        GraphBuilder::with_immediate(Operation::Add, rhs, self.builder)
-    }
-}
-
-impl<'a> Add<f64> for &InputNode<'a> {
-    type Output = GraphBuilder<'a>;
-
-    fn add(self, rhs: f64) -> Self::Output {
-        GraphBuilder::with_immediate(Operation::Add, rhs, self.builder.clone())
+        GraphBuilder::with_immediate(Operation::Add, rhs, self.clone())
     }
 }
 
@@ -395,22 +366,6 @@ impl<'a> Add<GraphBuilder<'a>> for f64 {
     }
 }
 
-impl<'a> Add<&InputNode<'a>> for &InputNode<'a> {
-    type Output = GraphBuilder<'a>;
-
-    fn add(self, rhs: &InputNode<'a>) -> Self::Output {
-        GraphBuilder::combine(Operation::Add, self.builder.clone(), rhs.builder.clone())
-    }
-}
-
-impl<'a> Sub<&InputNode<'a>> for &InputNode<'a> {
-    type Output = GraphBuilder<'a>;
-
-    fn sub(self, rhs: &InputNode<'a>) -> Self::Output {
-        GraphBuilder::combine(Operation::Sub, self.builder.clone(), rhs.builder.clone())
-    }
-}
-
 impl<'a> Sub<GraphBuilder<'a>> for GraphBuilder<'a> {
     type Output = GraphBuilder<'a>;
 
@@ -419,19 +374,11 @@ impl<'a> Sub<GraphBuilder<'a>> for GraphBuilder<'a> {
     }
 }
 
-impl<'a> Neg for &InputNode<'a> {
+impl<'a> Neg for &GraphBuilder<'a> {
     type Output = GraphBuilder<'a>;
 
     fn neg(self) -> Self::Output {
-        GraphBuilder::with_immediate(Operation::Sub, 0., self.builder.clone())
-    }
-}
-
-impl<'a> Add<GraphBuilder<'a>> for &InputNode<'a> {
-    type Output = GraphBuilder<'a>;
-
-    fn add(self, rhs: GraphBuilder<'a>) -> Self::Output {
-        GraphBuilder::combine(Operation::Add, self.builder.clone(), rhs.clone())
+        GraphBuilder::with_immediate(Operation::Sub, 0., self.clone())
     }
 }
 
@@ -451,6 +398,14 @@ impl<'a> Mul<&GraphBuilder<'a>> for &GraphBuilder<'a> {
     }
 }
 
+impl<'a> Mul<&GraphBuilder<'a>> for GraphBuilder<'a> {
+    type Output = GraphBuilder<'a>;
+
+    fn mul(self, rhs: &GraphBuilder) -> Self::Output {
+        GraphBuilder::combine(Operation::Mul, self.clone(), rhs.clone())
+    }
+}
+
 impl<'a> Mul<GraphBuilder<'a>> for f64 {
     type Output = GraphBuilder<'a>;
 
@@ -459,31 +414,23 @@ impl<'a> Mul<GraphBuilder<'a>> for f64 {
     }
 }
 
-impl<'a> Mul<&InputNode<'a>> for GraphBuilder<'a> {
+impl<'a> Mul<&GraphBuilder<'a>> for f64 {
     type Output = GraphBuilder<'a>;
 
-    fn mul(self, rhs: &InputNode<'a>) -> Self::Output {
-        GraphBuilder::combine(Operation::Mul, self.clone(), rhs.builder.clone())
-    }
-}
-
-impl<'a> Mul<&InputNode<'a>> for &InputNode<'a> {
-    type Output = GraphBuilder<'a>;
-
-    fn mul(self, rhs: &InputNode<'a>) -> Self::Output {
-        GraphBuilder::combine(Operation::Mul, self.builder.clone(), rhs.builder.clone())
-    }
-}
-
-impl<'a> Pow<f64> for &InputNode<'a> {
-    type Output = GraphBuilder<'a>;
-
-    fn pow(self, rhs: f64) -> Self::Output {
-        GraphBuilder::with_immediate(Operation::Pow, rhs, self.builder.clone())
+    fn mul(self, rhs: &GraphBuilder<'a>) -> Self::Output {
+        GraphBuilder::with_immediate(Operation::Mul, self.clone(), rhs.clone())
     }
 }
 
 impl<'a> Pow<f64> for GraphBuilder<'a> {
+    type Output = GraphBuilder<'a>;
+
+    fn pow(self, rhs: f64) -> Self::Output {
+        GraphBuilder::with_immediate(Operation::Pow, rhs, self.clone())
+    }
+}
+
+impl<'a> Pow<f64> for &GraphBuilder<'a> {
     type Output = GraphBuilder<'a>;
 
     fn pow(self, rhs: f64) -> Self::Output {
@@ -527,7 +474,7 @@ mod tests {
         let ids = Rc::new(RefCell::new(ids));
 
         let graph = GraphBuilder::new(ids);
-        let input = &graph.create_input();
+        let (input_id, input) = &graph.create_input();
 
         let builder = input + 1.;
 
@@ -535,16 +482,16 @@ mod tests {
 
         let outputs = vec![builder.root];
 
-        g.set_input(input.id, 0.);
+        g.set_input(*input_id, 0.);
         assert_eq!(g.evaluate(&outputs)[0], 1.);
 
-        g.set_input(input.id, 1.);
+        g.set_input(*input_id, 1.);
         assert_eq!(g.evaluate(&outputs)[0], 2.);
 
         let builder = builder * 4.;
         let mut g = RunnableGraph::new(vec![&builder]);
 
-        g.set_input(input.id, 2.);
+        g.set_input(*input_id, 2.);
         assert_eq!(g.evaluate(&vec![builder.root])[0], 12.);
     }
 
@@ -554,8 +501,8 @@ mod tests {
         let ids = Rc::new(RefCell::new(ids));
 
         let graph = GraphBuilder::new(ids);
-        let input1 = &graph.create_input();
-        let input2 = &graph.create_input();
+        let (input_id1, input1) = &graph.create_input();
+        let (input_id2, input2) = &graph.create_input();
 
         let g1 = input1 + 1.;
         let g2 = input2 + 2.;
@@ -570,8 +517,8 @@ mod tests {
 
         let mut g = RunnableGraph::new(vec![&g]);
 
-        g.set_input(input1.id, 1.5);
-        g.set_input(input2.id, 2.5);
+        g.set_input(*input_id1, 1.5);
+        g.set_input(*input_id2, 2.5);
         assert_eq!(g.evaluate(&vec![output])[0], 36.625);
     }
 
@@ -581,8 +528,8 @@ mod tests {
         let ids = Rc::new(RefCell::new(ids));
 
         let graph = GraphBuilder::new(ids);
-        let a = &graph.create_input();
-        let b = &graph.create_input();
+        let (a_id, a) = &graph.create_input();
+        let (b_id, b) = &graph.create_input();
 
         let c = a + b;
 
@@ -592,7 +539,7 @@ mod tests {
         let c = 1. + c + -a;
         let d = d * 2. + (b + a).relu();
 
-        let d = 3. * d + (b - a).relu();
+        let d = 3. * d + (b.clone() + -a).relu();
         let e = c - d;
         let f = e.pow(2.);
         let g = &f / 2.0 + 10. / &f;
@@ -600,8 +547,8 @@ mod tests {
         let outputs = vec![g.root];
         let mut g = RunnableGraph::new(vec![&g]);
 
-        g.set_input(a.id, -4.);
-        g.set_input(b.id, 2.);
+        g.set_input(*a_id, -4.);
+        g.set_input(*b_id, 2.);
 
         assert_eq!(g.evaluate(&outputs)[0], 2.4);
     }
@@ -612,8 +559,8 @@ mod tests {
         let ids = Rc::new(RefCell::new(ids));
 
         let graph = GraphBuilder::new(ids);
-        let a = &graph.create_input();
-        let b = &graph.create_input();
+        let (a_id, a) = &graph.create_input();
+        let (b_id, b) = &graph.create_input();
 
         let c = (a + b) * 2.;
 
@@ -622,8 +569,8 @@ mod tests {
         let g = &mut RunnableGraph::new(vec![&c]);
         let outputs = vec![c.root];
 
-        g.set_input(a.id, 1.);
-        g.set_input(b.id, 2.);
+        g.set_input(*a_id, 1.);
+        g.set_input(*b_id, 2.);
 
         let v = g.evaluate(&outputs)[0];
 
@@ -638,15 +585,15 @@ mod tests {
         let ids = Rc::new(RefCell::new(ids));
 
         let graph = GraphBuilder::new(ids.clone());
-        let a = &graph.create_input();
-        let b = &graph.create_input();
+        let (a_id, a) = &graph.create_input();
+        let (b_id, b) = &graph.create_input();
 
         let c = (a + b) * 2.;
         let c = c.relu();
 
         let graph = GraphBuilder::new(ids.clone());
-        let d = &graph.create_input();
-        let e = &graph.create_input();
+        let (d_id, d) = &graph.create_input();
+        let (e_id, e) = &graph.create_input();
 
         let f = (d + e) * 2. + a;
 
@@ -654,11 +601,11 @@ mod tests {
 
         let outputs = vec![c.root, f.root];
 
-        g.set_input(a.id, 1.);
-        g.set_input(b.id, 2.);
+        g.set_input(*a_id, 1.);
+        g.set_input(*b_id, 2.);
 
-        g.set_input(d.id, 3.);
-        g.set_input(e.id, 4.);
+        g.set_input(*d_id, 3.);
+        g.set_input(*e_id, 4.);
 
         let v = g.evaluate(&outputs);
 
