@@ -1,7 +1,7 @@
 use crate::engine::Data;
 
 pub trait Optimiser {
-    fn optimise(&mut self, data: &mut Vec<Data>);
+    fn optimise(&mut self, data: &mut [Data]);
 }
 
 pub struct AdamOptimiser {
@@ -26,7 +26,7 @@ impl AdamOptimiser {
 }
 
 impl Optimiser for AdamOptimiser {
-    fn optimise(&mut self, data: &mut Vec<Data>) {
+    fn optimise(&mut self, data: &mut [Data]) {
         self.t += 1.;
 
         self.m
@@ -59,7 +59,7 @@ impl LearningRateOptimiser {
 }
 
 impl Optimiser for LearningRateOptimiser {
-    fn optimise(&mut self, data: &mut Vec<Data>) {
+    fn optimise(&mut self, data: &mut [Data]) {
         data.iter_mut().for_each(|v| {
             v.value -= self.learning_rate * v.gradient;
         });

@@ -1,17 +1,11 @@
 use std::{fs::File, path::Path};
 
-use nn::MultiLayerPerceptron;
-use optimiser::{AdamOptimiser, LearningRateOptimiser};
+use micrograd_rs::nn::MultiLayerPerceptron;
+use micrograd_rs::optimiser::{AdamOptimiser, LearningRateOptimiser};
 use rand::{seq::SliceRandom, thread_rng};
 
-use crate::util::{Mean, Util};
-use data::Mnist;
-
-mod data;
-mod engine;
-mod nn;
-mod optimiser;
-mod util;
+use micrograd_rs::data::Mnist;
+use micrograd_rs::util::{Mean, Util};
 
 fn main() {
     let guard = pprof::ProfilerGuardBuilder::default()
