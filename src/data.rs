@@ -12,14 +12,14 @@ pub struct Mnist {
 
 impl Mnist {
     pub fn from_parquet(path: &Path) -> Mnist {
-        if let Ok(file) = File::open(&path) {
+        if let Ok(file) = File::open(path) {
             let reader = SerializedFileReader::new(file).unwrap();
 
-            let mut iter = reader.get_row_iter(None).unwrap();
+            let iter = reader.get_row_iter(None).unwrap();
 
             let mut images: Vec<Vec<f64>> = vec![];
             let mut labels: Vec<u32> = vec![];
-            while let Some(record) = iter.next() {
+            for record in iter {
                 for (name, field) in record.get_column_iter() {
                     match name.as_str() {
                         "data" => match field {
