@@ -16,7 +16,7 @@ fn main() {
 
     let mnist = Mnist::from_parquet(Path::new("mnist.parquet"));
 
-    let mut mlp = MultiLayerPerceptron::new(vec![mnist.x_dim, mnist.y_dim]);
+    let mut mlp = MultiLayerPerceptron::new(vec![mnist.x_dim, mnist.y_dim], None);
 
     // let optimiser = &mut LearningRateOptimiser::new(0.004);
     let optimiser = &mut AdamOptimiser::new(mlp.num_parameters());

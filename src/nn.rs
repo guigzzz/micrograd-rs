@@ -1,6 +1,6 @@
 use std::{cell::RefCell, rc::Rc};
 
-use rand::Rng;
+use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
 
 use crate::{
     engine::{GraphBuilder, IdGenerator, NodeId, RunnableGraph},
@@ -12,8 +12,10 @@ pub struct Neuron<'a> {
 }
 
 impl<'a> Neuron<'a> {
-    fn new(inputs: Vec<GraphBuilder<'a>>, non_linearity: bool) -> Neuron<'a> {
-        let mut rng = rand::thread_rng();
+    fn new(inputs: Vec<GraphBuilder<'a>>, non_linearity: bool, seed: Option<u64>) -> Neuron<'a> {
+        let mut rng = seed
+            .map(StdRng::seed_from_u64)
+            .unwrap_or_else(|| StdRng::from_rng(thread_rng()).unwrap());
 
         let weights: Vec<GraphBuilder> =
             inputs.iter().map(|i| rng.gen_range(-1.0..1.) * i).collect();
@@ -44,7 +46,7 @@ pub struct MultiLayerPerceptron {
 }
 
 impl MultiLayerPerceptron {
-    pub fn new(sizes: Vec<usize>) -> MultiLayerPerceptron {
+    pub fn new(sizes: Vec<usize>, seed: Option<u64>) -> MultiLayerPerceptron {
         let ids = &mut IdGenerator::new();
         let ids = Rc::new(RefCell::new(ids));
 
@@ -65,7 +67,7 @@ impl MultiLayerPerceptron {
             .fold(builders.clone(), |b, (i, s)| {
                 let non_linearity = i != sizes.len() - 1;
                 (0..*s)
-                    .map(|_| Neuron::new(b.clone(), non_linearity).op)
+                    .map(|_| Neuron::new(b.clone(), non_linearity, seed).op)
                     .collect()
             });
 
@@ -135,7 +137,8 @@ mod tests {
             (vec![0., 0.], vec![1., 0.]),
         ];
 
-        let mut mlp = MultiLayerPerceptron::new(Vec::from([xy[0].0.len(), 2, xy[0].1.len()]));
+        let mut mlp =
+            MultiLayerPerceptron::new(Vec::from([xy[0].0.len(), 2, xy[0].1.len()]), Some(4));
 
         let optimiser = &mut LearningRateOptimiser::new(0.1);
 
